@@ -37,6 +37,7 @@
 #include <mtdev-plumbing.h>
 #include <assert.h>
 #include <math.h>
+#include <libudev.h>
 
 #include "libinput.h"
 #include "evdev.h"

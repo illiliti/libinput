@@ -33,6 +33,7 @@
 #include <libevdev/libevdev.h>
 #include <libevdev/libevdev-uinput.h>
 #include <libinput.h>
+#include <libudev.h>
 #include <math.h>
 
 #include "check-double-macros.h"

@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <libudev.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

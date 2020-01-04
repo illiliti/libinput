@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <getopt.h>
+#include <libudev.h>
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>

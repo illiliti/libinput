@@ -23,6 +23,7 @@
 
 #include "config.h"
 
+#include <libudev.h>
 #include <limits.h>
 #include <fcntl.h>
 

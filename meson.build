@@ -278,7 +278,7 @@ src_libinput_util = [
 ]
 libinput_util = static_library('libinput-util',
 			       src_libinput_util,
-			       dependencies : [dep_udev, dep_libevdev, dep_libwacom],
+			       dependencies : [dep_libevdev, dep_libwacom],
 			       include_directories : includes_include)
 dep_libinput_util = declare_dependency(link_with : libinput_util)
 
@@ -296,7 +296,7 @@ src_libfilter = [
 		'src/filter-private.h'
 ]
 libfilter = static_library('filter', src_libfilter,
-			   dependencies : [dep_udev, dep_libwacom],
+			   dependencies : [dep_libwacom],
 			   include_directories : includes_include)
 dep_libfilter = declare_dependency(link_with : libfilter)
 
@@ -726,14 +726,12 @@ test('symbols-leak-test',
 # build-test only
 executable('test-build-pedantic',
 	   'test/build-pedantic.c',
-	   dependencies : [dep_udev],
 	   include_directories : [includes_src, includes_include],
 	   c_args : ['-std=c99', '-pedantic', '-Werror'],
 	   install : false)
 # build-test only
 executable('test-build-std-gnuc90',
 	   'test/build-pedantic.c',
-	   dependencies : [dep_udev],
 	   include_directories : [includes_src, includes_include],
 	   c_args : ['-std=gnu89', '-Werror'],
 	   install : false)
@@ -747,7 +745,6 @@ executable('test-build-linker',
 if add_languages('cpp', required: false)
 	executable('test-build-cxx',
 		   'test/build-cxx.cc',
-		   dependencies : [dep_udev],
 		   include_directories : [includes_src, includes_include],
 		   install : false)
 endif

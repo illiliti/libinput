@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <getopt.h>
+#include <libudev.h>
 #include <sys/stat.h>
 
 #include "quirks.h"

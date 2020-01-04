@@ -28,9 +28,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include <libudev.h>
-
 #include "libinput.h"
+
+struct udev_device;
 
 /**
  * Handle to the quirks context.

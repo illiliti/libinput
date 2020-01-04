@@ -27,6 +27,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <limits.h>
+#include <libudev.h>
 
 #if HAVE_LIBWACOM
 #include <libwacom/libwacom.h>

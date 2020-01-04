@@ -33,6 +33,7 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <assert.h>
+#include <libudev.h>
 
 #include "libinput.h"
 #include "libinput-private.h"
