@@ -31,13 +31,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#ifndef major
+#include <sys/sysmacros.h>
+#endif
 #include "linux/input.h"
 #include <unistd.h>
 #include <fcntl.h>
 #include <mtdev-plumbing.h>
 #include <assert.h>
 #include <math.h>
-#include <libudev.h>
 
 #include "libinput.h"
 #include "evdev.h"
@@ -49,6 +52,12 @@
 #if HAVE_LIBWACOM
 #include <libwacom/libwacom.h>
 #endif
+
+#if HAVE_UDEV
+#include <libudev.h>
+#endif
+
+#define INPUT_MAJOR 13
 
 #define DEFAULT_WHEEL_CLICK_ANGLE 15
 #define DEFAULT_BUTTON_SCROLL_TIMEOUT ms2us(200)
@@ -73,6 +82,7 @@ struct evdev_udev_tag_match {
 	enum evdev_device_udev_tags tag;
 };
 
+#if HAVE_UDEV
 static const struct evdev_udev_tag_match evdev_udev_tag_matches[] = {
 	{"ID_INPUT",			EVDEV_UDEV_TAG_INPUT},
 	{"ID_INPUT_KEYBOARD",		EVDEV_UDEV_TAG_KEYBOARD},
@@ -88,6 +98,7 @@ static const struct evdev_udev_tag_match evdev_udev_tag_matches[] = {
 	{"ID_INPUT_TRACKBALL",		EVDEV_UDEV_TAG_TRACKBALL},
 	{"ID_INPUT_SWITCH",		EVDEV_UDEV_TAG_SWITCH},
 };
+#endif
 
 static inline bool
 parse_udev_flag(struct evdev_device *device,
@@ -96,7 +107,11 @@ parse_udev_flag(struct evdev_device *device,
 {
 	const char *val;
 
+#if HAVE_UDEV
 	val = udev_device_get_property_value(udev_device, property);
+#else
+	val = NULL;
+#endif
 	if (!val)
 		return false;
 
@@ -1207,7 +1222,11 @@ evdev_read_wheel_click_prop(struct evdev_device *device,
 	int val;
 
 	*angle = DEFAULT_WHEEL_CLICK_ANGLE;
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device, prop);
+#else
+	prop = NULL;
+#endif
 	if (!prop)
 		return false;
 
@@ -1232,7 +1251,11 @@ evdev_read_wheel_click_count_prop(struct evdev_device *device,
 {
 	int val;
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device, prop);
+#else
+	prop = NULL;
+#endif
 	if (!prop)
 		return false;
 
@@ -1356,8 +1379,12 @@ evdev_read_dpi_prop(struct evdev_device *device)
 	if (device->tags & EVDEV_TAG_TRACKPOINT)
 		return DEFAULT_MOUSE_DPI;
 
+#if HAVE_UDEV
 	mouse_dpi = udev_device_get_property_value(device->udev_device,
 						   "MOUSE_DPI");
+#else
+	mouse_dpi = NULL;
+#endif
 	if (mouse_dpi) {
 		dpi = parse_mouse_dpi_property(mouse_dpi);
 		if (!dpi) {
@@ -1558,9 +1585,9 @@ evdev_device_get_udev_tags(struct evdev_device *device,
 			   struct udev_device *udev_device)
 {
 	enum evdev_device_udev_tags tags = 0;
-	int i;
 
-	for (i = 0; i < 2 && udev_device; i++) {
+#if HAVE_UDEV
+	for (int i = 0; i < 2 && udev_device; i++) {
 		unsigned j;
 		for (j = 0; j < ARRAY_LENGTH(evdev_udev_tag_matches); j++) {
 			const struct evdev_udev_tag_match match = evdev_udev_tag_matches[j];
@@ -1571,6 +1598,29 @@ evdev_device_get_udev_tags(struct evdev_device *device,
 		}
 		udev_device = udev_device_get_parent(udev_device);
 	}
+#else
+	struct libevdev *evdev = device->evdev;
+	struct stat st;
+	if (fstat(device->fd, &st) < 0)
+		return 0;
+	if (major(st.st_rdev) == INPUT_MAJOR)
+		tags |= EVDEV_UDEV_TAG_INPUT;
+	if (libevdev_has_event_code(evdev, EV_KEY, KEY_ENTER))
+		tags |= EVDEV_UDEV_TAG_KEYBOARD;
+	if (libevdev_has_event_code(evdev, EV_REL, REL_X) &&
+	    libevdev_has_event_code(evdev, EV_REL, REL_Y) &&
+	    libevdev_has_event_code(evdev, EV_KEY, BTN_MOUSE))
+		tags |= EVDEV_UDEV_TAG_MOUSE;
+	if (libevdev_has_event_code(evdev, EV_ABS, ABS_X) &&
+	    libevdev_has_event_code(evdev, EV_ABS, ABS_Y)) {
+		if (libevdev_has_event_code(evdev, EV_KEY, BTN_TOOL_FINGER) &&
+		    !libevdev_has_event_code(evdev, EV_KEY, BTN_TOOL_PEN)) {
+			tags |= EVDEV_UDEV_TAG_TOUCHPAD;
+		} else if (libevdev_has_event_code(evdev, EV_KEY, BTN_MOUSE)) {
+			tags |= EVDEV_UDEV_TAG_MOUSE;
+		}
+	}
+#endif
 
 	return tags;
 }
@@ -1969,6 +2019,7 @@ evdev_notify_added_device(struct evdev_device *device)
 static bool
 evdev_device_have_same_syspath(struct udev_device *udev_device, int fd)
 {
+#if HAVE_UDEV
 	struct udev *udev = udev_device_get_udev(udev_device);
 	struct udev_device *udev_device_new = NULL;
 	struct stat st;
@@ -1987,6 +2038,9 @@ out:
 	if (udev_device_new)
 		udev_device_unref(udev_device_new);
 	return rc;
+#else
+	return true;
+#endif
 }
 
 static bool
@@ -1997,8 +2051,12 @@ evdev_set_device_group(struct evdev_device *device,
 	struct libinput_device_group *group = NULL;
 	const char *udev_group;
 
+#if HAVE_UDEV
 	udev_group = udev_device_get_property_value(udev_device,
 						    "LIBINPUT_DEVICE_GROUP");
+#else
+	udev_group = NULL;
+#endif
 	if (udev_group)
 		group = libinput_device_group_find_group(libinput, udev_group);
 
@@ -2105,7 +2163,7 @@ libevdev_log_func(const struct libevdev *evdev,
 	struct libinput *libinput = data;
 	enum libinput_log_priority pri = LIBINPUT_LOG_PRIORITY_ERROR;
 	const char prefix[] = "libevdev: ";
-	char fmt[strlen(format) + strlen(prefix) + 1];
+	char fmt[1024];
 
 	switch (priority) {
 	case LIBEVDEV_LOG_ERROR:
@@ -2129,23 +2187,33 @@ udev_device_should_be_ignored(struct udev_device *udev_device)
 {
 	const char *value;
 
+#if HAVE_UDEV
 	value = udev_device_get_property_value(udev_device,
 					       "LIBINPUT_IGNORE_DEVICE");
+#else
+	value = NULL;
+#endif
 
 	return value && !streq(value, "0");
 }
 
 struct evdev_device *
 evdev_device_create(struct libinput_seat *seat,
-		    struct udev_device *udev_device)
+		    struct udev_device *udev_device,
+		    const char *devnode, const char *sysname)
 {
 	struct libinput *libinput = seat->libinput;
 	struct evdev_device *device = NULL;
 	int rc;
 	int fd;
 	int unhandled_device = 0;
-	const char *devnode = udev_device_get_devnode(udev_device);
-	const char *sysname = udev_device_get_sysname(udev_device);
+
+#if HAVE_UDEV
+	if (udev_device) {
+		devnode = udev_device_get_devnode(udev_device);
+		sysname = udev_device_get_sysname(udev_device);
+	}
+#endif
 
 	if (!devnode) {
 		log_info(libinput, "%s: no device node associated\n", sysname);
@@ -2193,10 +2261,16 @@ evdev_device_create(struct libinput_seat *seat,
 	device->seat_caps = 0;
 	device->is_mt = 0;
 	device->mtdev = NULL;
+#if HAVE_UDEV
 	device->udev_device = udev_device_ref(udev_device);
+#else
+	device->udev_device = NULL;
+#endif
 	device->dispatch = NULL;
 	device->fd = fd;
+	device->devnode = devnode;
 	device->devname = libevdev_get_name(device->evdev);
+	device->sysname = sysname;
 	device->scroll.threshold = 5.0; /* Default may be overridden */
 	device->scroll.direction_lock_threshold = 5.0; /* Default may be overridden */
 	device->scroll.direction = 0;
@@ -2255,7 +2329,11 @@ evdev_device_get_output(struct evdev_device *device)
 const char *
 evdev_device_get_sysname(struct evdev_device *device)
 {
+#if HAVE_UDEV
 	return udev_device_get_sysname(device->udev_device);
+#else
+	return device->sysname;
+#endif
 }
 
 const char *
@@ -2279,7 +2357,11 @@ evdev_device_get_id_vendor(struct evdev_device *device)
 struct udev_device *
 evdev_device_get_udev_device(struct evdev_device *device)
 {
+#if HAVE_UDEV
 	return udev_device_ref(device->udev_device);
+#else
+	return NULL;
+#endif
 }
 
 void
@@ -2360,8 +2442,12 @@ evdev_read_calibration_prop(struct evdev_device *device)
 	const char *prop;
 	float calibration[6];
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device,
 					      "LIBINPUT_CALIBRATION_MATRIX");
+#else
+	prop = NULL;
+#endif
 
 	if (prop == NULL)
 		return;
@@ -2396,7 +2482,11 @@ evdev_read_fuzz_prop(struct evdev_device *device, unsigned int code)
 	if (rc == -1)
 		return 0;
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device, name);
+#else
+	prop = NULL;
+#endif
 	if (prop && (safe_atoi(prop, &fuzz) == false || fuzz < 0)) {
 		evdev_log_bug_libinput(device,
 				       "invalid LIBINPUT_FUZZ property value: %s\n",
@@ -2726,7 +2816,6 @@ evdev_device_resume(struct evdev_device *device)
 {
 	struct libinput *libinput = evdev_libinput_context(device);
 	int fd;
-	const char *devnode;
 	struct input_event ev;
 	enum libevdev_read_status status;
 
@@ -2736,11 +2825,7 @@ evdev_device_resume(struct evdev_device *device)
 	if (device->was_removed)
 		return -ENODEV;
 
-	devnode = udev_device_get_devnode(device->udev_device);
-	if (!devnode)
-		return -ENODEV;
-
-	fd = open_restricted(libinput, devnode,
+	fd = open_restricted(libinput, device->devnode,
 			     O_RDWR | O_NONBLOCK | O_CLOEXEC);
 
 	if (fd < 0)
@@ -2839,7 +2924,9 @@ evdev_device_destroy(struct evdev_device *device)
 	libinput_timer_destroy(&device->middlebutton.timer);
 	libinput_seat_unref(device->base.seat);
 	libevdev_free(device->evdev);
+#if HAVE_UDEV
 	udev_device_unref(device->udev_device);
+#endif
 	free(device);
 }
 
@@ -2852,17 +2939,15 @@ evdev_tablet_has_left_handed(struct evdev_device *device)
 	WacomDeviceDatabase *db = NULL;
 	WacomDevice *d = NULL;
 	WacomError *error;
-	const char *devnode;
 
 	db = libinput_libwacom_ref(li);
 	if (!db)
 		goto out;
 
 	error = libwacom_error_new();
-	devnode = udev_device_get_devnode(device->udev_device);
 
 	d = libwacom_new_from_path(db,
-				   devnode,
+				   device->devnode,
 				   WFALLBACK_NONE,
 				   error);
 

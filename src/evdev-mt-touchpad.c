@@ -27,10 +27,13 @@
 #include <math.h>
 #include <stdbool.h>
 #include <limits.h>
-#include <libudev.h>
 
 #if HAVE_LIBWACOM
 #include <libwacom/libwacom.h>
+#endif
+
+#if HAVE_UDEV
+#include <libudev.h>
 #endif
 
 #include "quirks.h"
@@ -2609,8 +2612,12 @@ evdev_tag_touchpad(struct evdev_device *device,
 	int bustype, vendor;
 	const char *prop;
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(udev_device,
 					      "ID_INPUT_TOUCHPAD_INTEGRATION");
+#else
+	prop = NULL;
+#endif
 	if (prop) {
 		if (streq(prop, "internal")) {
 			evdev_tag_touchpad_internal(device);

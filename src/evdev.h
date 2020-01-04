@@ -167,7 +167,9 @@ struct evdev_device {
 	struct libevdev *evdev;
 	struct udev_device *udev_device;
 	char *output_name;
+	const char *devnode;
 	const char *devname;
+	const char *sysname;
 	bool was_removed;
 	int fd;
 	enum evdev_device_seat_capability seat_caps;
@@ -375,7 +377,8 @@ evdev_verify_dispatch_type(struct evdev_dispatch *dispatch,
 
 struct evdev_device *
 evdev_device_create(struct libinput_seat *seat,
-		    struct udev_device *device);
+		    struct udev_device *device,
+		    const char *devnode, const char *sysname);
 
 static inline struct libinput *
 evdev_libinput_context(const struct evdev_device *device)

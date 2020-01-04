@@ -23,7 +23,6 @@
 
 #include "config.h"
 
-#include <libudev.h>
 #include <limits.h>
 #include <fcntl.h>
 
@@ -31,6 +30,10 @@
 
 #if HAVE_LIBWACOM
 #include <libwacom/libwacom.h>
+#endif
+
+#if HAVE_UDEV
+#include <libudev.h>
 #endif
 
 struct pad_led_group {
@@ -187,8 +190,12 @@ pad_group_new_basic(struct pad_dispatch *pad,
 static inline bool
 is_litest_device(struct evdev_device *device)
 {
+#if HAVE_UDEV
 	return !!udev_device_get_property_value(device->udev_device,
 						"LIBINPUT_TEST_DEVICE");
+#else
+	return false;
+#endif
 }
 
 static inline struct pad_led_group *
@@ -240,6 +247,7 @@ pad_led_get_sysfs_base_path(struct evdev_device *device,
 			    char *path_out,
 			    size_t path_out_sz)
 {
+#if HAVE_UDEV
 	struct udev_device *parent, *udev_device;
 	const char *test_path;
 	int rc;
@@ -268,6 +276,9 @@ pad_led_get_sysfs_base_path(struct evdev_device *device,
 		      udev_device_get_sysname(parent));
 
 	return rc != -1;
+#else
+	return false;
+#endif
 }
 
 #if HAVE_LIBWACOM
@@ -499,7 +510,7 @@ pad_init_leds_from_libwacom(struct pad_dispatch *pad,
 		goto out;
 
 	wacom = libwacom_new_from_path(db,
-				       udev_device_get_devnode(device->udev_device),
+				       device->devnode,
 				       WFALLBACK_NONE,
 				       NULL);
 	if (!wacom)

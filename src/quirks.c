@@ -31,10 +31,13 @@
 #undef NDEBUG /* You don't get to disable asserts here */
 #include <assert.h>
 #include <stdlib.h>
-#include <libudev.h>
 #include <dirent.h>
 #include <fnmatch.h>
 #include <libgen.h>
+
+#if HAVE_UDEV
+#include <libudev.h>
+#endif
 
 #include "libinput-versionsort.h"
 #include "libinput-util.h"
@@ -348,34 +351,22 @@ property_cleanup(struct property *p)
 static inline char *
 init_dmi(void)
 {
-	struct udev *udev;
-	struct udev_device *udev_device;
-	const char *modalias = NULL;
+	char modalias[1024];
 	char *copy = NULL;
-	const char *syspath = "/sys/devices/virtual/dmi/id";
+	const char *syspath = "/sys/devices/virtual/dmi/id/modalias";
+	FILE *fp;
 
 	if (getenv("LIBINPUT_RUNNING_TEST_SUITE"))
 		return safe_strdup("dmi:");
 
-	udev = udev_new();
-	if (!udev)
+	fp = fopen(syspath, "r");
+	if (!fp)
 		return NULL;
 
-	udev_device = udev_device_new_from_syspath(udev, syspath);
-	if (udev_device)
-		modalias = udev_device_get_property_value(udev_device,
-							  "MODALIAS");
+	if (fgets(modalias, sizeof(modalias), fp))
+		copy = safe_strdup(modalias);
 
-	/* Not sure whether this could ever really fail, if so we should
-	 * open the sysfs file directly. But then udev wouldn't have failed,
-	 * so... */
-	if (!modalias)
-		modalias = "dmi:*";
-
-	copy = safe_strdup(modalias);
-
-	udev_device_unref(udev_device);
-	udev_unref(udev);
+	fclose(fp);
 
 	return copy;
 }
@@ -1100,6 +1091,7 @@ quirks_context_unref(struct quirks_context *ctx)
 	return NULL;
 }
 
+#if HAVE_UDEV
 static struct quirks *
 quirks_new(void)
 {
@@ -1112,6 +1104,7 @@ quirks_new(void)
 
 	return q;
 }
+#endif
 
 struct quirks *
 quirks_unref(struct quirks *q)
@@ -1142,13 +1135,16 @@ quirks_unref(struct quirks *q)
 static const char *
 udev_prop(struct udev_device *device, const char *prop)
 {
-	struct udev_device *d = device;
 	const char *value = NULL;
+
+#if HAVE_UDEV
+	struct udev_device *d = device;
 
 	do {
 		value = udev_device_get_property_value(d, prop);
 		d = udev_device_get_parent(d);
 	} while (value == NULL && d != NULL);
+#endif
 
 	return value;
 }
@@ -1262,6 +1258,7 @@ match_fill_dmi_dt(struct match *m, char *dmi, char *dt)
 	}
 }
 
+#if HAVE_UDEV
 static struct match *
 match_new(struct udev_device *device,
 	  char *dmi, char *dt)
@@ -1387,11 +1384,13 @@ quirk_match_section(struct quirks_context *ctx,
 
 	return true;
 }
+#endif
 
 struct quirks *
 quirks_fetch_for_device(struct quirks_context *ctx,
 			struct udev_device *udev_device)
 {
+#if HAVE_UDEV
 	struct quirks *q = NULL;
 	struct section *s;
 	struct match *m;
@@ -1420,6 +1419,9 @@ quirks_fetch_for_device(struct quirks_context *ctx,
 	list_insert(&ctx->quirks, &q->link);
 
 	return q;
+#else
+	return NULL;
+#endif
 }
 
 

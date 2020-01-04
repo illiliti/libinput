@@ -122,7 +122,6 @@ endif
 
 # Dependencies
 pkgconfig = import('pkgconfig')
-dep_udev = dependency('libudev')
 dep_mtdev = dependency('mtdev', version : '>= 1.1.0')
 dep_libevdev = dependency('libevdev')
 dep_lm = cc.find_library('m', required : false)
@@ -152,46 +151,54 @@ endif
 
 ############ udev bits ############
 
-executable('libinput-device-group',
-	   'udev/libinput-device-group.c',
-	   dependencies : [dep_udev, dep_libwacom],
-	   include_directories : [includes_src, includes_include],
-	   install : true,
-	   install_dir : dir_udev_callouts)
-executable('libinput-fuzz-extract',
-	   'udev/libinput-fuzz-extract.c',
-	   'src/util-strings.c',
-	   'src/util-prop-parsers.c',
-	   dependencies : [dep_udev, dep_libevdev, dep_lm],
-	   include_directories : [includes_src, includes_include],
-	   install : true,
-	   install_dir : dir_udev_callouts)
-executable('libinput-fuzz-to-zero',
-	   'udev/libinput-fuzz-to-zero.c',
-	   dependencies : [dep_udev, dep_libevdev],
-	   include_directories : [includes_src, includes_include],
-	   install : true,
-	   install_dir : dir_udev_callouts)
+have_udev = get_option('udev')
+config_h.set10('HAVE_UDEV', have_udev)
+if have_udev
+	dep_udev = dependency('libudev')
 
-udev_rules_config = configuration_data()
-udev_rules_config.set('UDEV_TEST_PATH', '')
-configure_file(input : 'udev/80-libinput-device-groups.rules.in',
-	       output : '80-libinput-device-groups.rules',
-	       install_dir : dir_udev_rules,
-	       configuration : udev_rules_config)
-configure_file(input : 'udev/90-libinput-fuzz-override.rules.in',
-	       output : '90-libinput-fuzz-override.rules',
-	       install_dir : dir_udev_rules,
-	       configuration : udev_rules_config)
+	executable('libinput-device-group',
+		   'udev/libinput-device-group.c',
+		   dependencies : [dep_udev, dep_libwacom],
+		   include_directories : [includes_src, includes_include],
+		   install : true,
+		   install_dir : dir_udev_callouts)
+	executable('libinput-fuzz-extract',
+		   'udev/libinput-fuzz-extract.c',
+		   'src/util-strings.c',
+		   'src/util-prop-parsers.c',
+		   dependencies : [dep_udev, dep_libevdev, dep_lm],
+		   include_directories : [includes_src, includes_include],
+		   install : true,
+		   install_dir : dir_udev_callouts)
+	executable('libinput-fuzz-to-zero',
+		   'udev/libinput-fuzz-to-zero.c',
+		   dependencies : [dep_udev, dep_libevdev],
+		   include_directories : [includes_src, includes_include],
+		   install : true,
+		   install_dir : dir_udev_callouts)
 
-litest_udev_rules_config = configuration_data()
-litest_udev_rules_config.set('UDEV_TEST_PATH', meson.current_build_dir() + '/')
-litest_groups_rules_file = configure_file(input : 'udev/80-libinput-device-groups.rules.in',
-	       output : '80-libinput-device-groups-litest.rules',
-	       configuration : litest_udev_rules_config)
-litest_fuzz_override_file = configure_file(input : 'udev/90-libinput-fuzz-override.rules.in',
-					   output : '90-libinput-fuzz-override-litest.rules',
-					   configuration : litest_udev_rules_config)
+	udev_rules_config = configuration_data()
+	udev_rules_config.set('UDEV_TEST_PATH', '')
+	configure_file(input : 'udev/80-libinput-device-groups.rules.in',
+		       output : '80-libinput-device-groups.rules',
+		       install_dir : dir_udev_rules,
+		       configuration : udev_rules_config)
+	configure_file(input : 'udev/90-libinput-fuzz-override.rules.in',
+		       output : '90-libinput-fuzz-override.rules',
+		       install_dir : dir_udev_rules,
+		       configuration : udev_rules_config)
+
+	litest_udev_rules_config = configuration_data()
+	litest_udev_rules_config.set('UDEV_TEST_PATH', meson.current_build_dir() + '/')
+	litest_groups_rules_file = configure_file(input : 'udev/80-libinput-device-groups.rules.in',
+		       output : '80-libinput-device-groups-litest.rules',
+		       configuration : litest_udev_rules_config)
+	litest_fuzz_override_file = configure_file(input : 'udev/90-libinput-fuzz-override.rules.in',
+						   output : '90-libinput-fuzz-override-litest.rules',
+						   configuration : litest_udev_rules_config)
+else
+	dep_udev = declare_dependency()
+endif
 
 ############ Check for leftover udev rules ########
 
@@ -465,256 +472,267 @@ endif
 subdir('completion/zsh')
 
 ############ tools ############
-libinput_tool_path = dir_libexec
-config_h.set_quoted('LIBINPUT_TOOL_PATH', libinput_tool_path)
-tools_shared_sources = [ 'tools/shared.c',
-			 'tools/shared.h',
-			 'src/builddir.h' ]
-deps_tools_shared = [ dep_libinput, dep_libevdev ]
-lib_tools_shared = static_library('tools_shared',
-				  tools_shared_sources,
-				  include_directories : [includes_src, includes_include],
-				  dependencies : deps_tools_shared)
-dep_tools_shared = declare_dependency(link_with : lib_tools_shared,
-				      dependencies : deps_tools_shared)
 
-man_config = configuration_data()
-man_config.set('LIBINPUT_VERSION', meson.project_version())
-man_config.set('LIBINPUT_DATA_DIR', dir_data)
+if get_option('tools')
+	if not have_udev
+		error('tools require -Dudev=true')
+	endif
 
-deps_tools = [ dep_tools_shared, dep_libinput ]
-libinput_debug_events_sources = [
-	'tools/libinput-debug-events.c',
-	libinput_version_h,
-]
-executable('libinput-debug-events',
-	   libinput_debug_events_sources,
-	   dependencies : deps_tools,
-	   include_directories : [includes_src, includes_include],
-	   install_dir : libinput_tool_path,
-	   install : true
-	   )
-configure_file(input : 'tools/libinput-debug-events.man',
-	       output : 'libinput-debug-events.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
+	libinput_tool_path = dir_libexec
+	config_h.set_quoted('LIBINPUT_TOOL_PATH', libinput_tool_path)
+	tools_shared_sources = [ 'tools/shared.c',
+				 'tools/shared.h',
+				 'src/builddir.h' ]
+	deps_tools_shared = [ dep_libinput, dep_libevdev ]
+	lib_tools_shared = static_library('tools_shared',
+					  tools_shared_sources,
+					  include_directories : [includes_src, includes_include],
+					  dependencies : deps_tools_shared)
+	dep_tools_shared = declare_dependency(link_with : lib_tools_shared,
+					      dependencies : deps_tools_shared)
 
-libinput_debug_tablet_sources = [ 'tools/libinput-debug-tablet.c' ]
-executable('libinput-debug-tablet',
-	   libinput_debug_tablet_sources,
-	   dependencies : deps_tools,
-	   include_directories : [includes_src, includes_include],
-	   install_dir : libinput_tool_path,
-	   install : true)
+	man_config = configuration_data()
+	man_config.set('LIBINPUT_VERSION', meson.project_version())
+	man_config.set('LIBINPUT_DATA_DIR', dir_data)
 
-configure_file(input : 'tools/libinput-debug-tablet.man',
-	       output : 'libinput-debug-tablet.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-
-libinput_quirks_sources = [ 'tools/libinput-quirks.c' ]
-libinput_quirks = executable('libinput-quirks',
-			     libinput_quirks_sources,
-			     dependencies : [dep_libquirks, dep_tools_shared, dep_libinput],
-			     include_directories : [includes_src, includes_include],
-			     install_dir : libinput_tool_path,
-			     install : true
-			    )
-test('validate-quirks',
-     libinput_quirks,
-     args: ['validate', '--data-dir=@0@'.format(dir_src_quirks)],
-     suite : ['all']
-     )
-
-configure_file(input : 'tools/libinput-quirks.man',
-	       output : 'libinput-quirks.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-# Same man page for the subtools to stay consistent with the other tools
-configure_file(input : 'tools/libinput-quirks.man',
-	       output : 'libinput-quirks-list.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-configure_file(input : 'tools/libinput-quirks.man',
-	       output : 'libinput-quirks-validate.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-
-libinput_list_devices_sources = [ 'tools/libinput-list-devices.c' ]
-libinput_list_devices = executable('libinput-list-devices',
-				   libinput_list_devices_sources,
-				   dependencies : deps_tools,
-				   include_directories : [includes_src, includes_include],
-				   install_dir : libinput_tool_path,
-				   install : true,
-				  )
-test('list-devices',
-     libinput_list_devices,
-     suite : ['all', 'root', 'hardware'])
-
-configure_file(input : 'tools/libinput-list-devices.man',
-	       output : 'libinput-list-devices.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-
-libinput_measure_sources = [ 'tools/libinput-measure.c' ]
-executable('libinput-measure',
-	   libinput_measure_sources,
-	   dependencies : deps_tools,
-	   include_directories : [includes_src, includes_include],
-	   install_dir : libinput_tool_path,
-	   install : true,
-	   )
-configure_file(input : 'tools/libinput-measure.man',
-	       output : 'libinput-measure.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-
-src_python_tools = files(
-	      'tools/libinput-measure-fuzz.py',
-	      'tools/libinput-measure-touchpad-tap.py',
-	      'tools/libinput-measure-touchpad-pressure.py',
-	      'tools/libinput-measure-touch-size.py',
-)
-
-config_noop = configuration_data()
-# Set a dummy replacement to silence meson warnings:
-# meson.build:487: WARNING: Got an empty configuration_data() object and
-# 		   found no substitutions in the input file 'foo'. If you
-# 		   want to copy a file to the build dir, use the 'copy:'
-# 		   keyword argument added in 0.47.0
-config_noop.set('dummy', 'dummy')
-foreach t : src_python_tools
-	configure_file(input: t,
-		       output: '@BASENAME@',
-		       configuration : config_noop,
-		       install_dir : libinput_tool_path
-		      )
-endforeach
-
-src_man = files(
-	      'tools/libinput-measure-fuzz.man',
-	      'tools/libinput-measure-touchpad-tap.man',
-	      'tools/libinput-measure-touchpad-pressure.man',
-	      'tools/libinput-measure-touch-size.man',
-)
-
-foreach m : src_man
-	configure_file(input : m,
-		       output : '@BASENAME@.1',
-		       configuration : man_config,
-		       install_dir : dir_man1)
-endforeach
-
-libinput_record_sources = [ 'tools/libinput-record.c', git_version_h ]
-executable('libinput-record',
-	   libinput_record_sources,
-	   dependencies : deps_tools + [dep_udev],
-	   include_directories : [includes_src, includes_include],
-	   install_dir : libinput_tool_path,
-	   install : true,
-	   )
-configure_file(input : 'tools/libinput-record.man',
-	       output : 'libinput-record.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-
-install_data('tools/libinput-replay',
-	     install_dir : libinput_tool_path)
-configure_file(input : 'tools/libinput-replay.man',
-	       output : 'libinput-replay.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
-
-if get_option('debug-gui')
-	dep_gtk = dependency('gtk+-3.0', version : '>= 3.20')
-	dep_cairo = dependency('cairo')
-	dep_glib = dependency('glib-2.0')
-
-	debug_gui_sources = [ 'tools/libinput-debug-gui.c' ]
-	deps_debug_gui = [
-			dep_gtk,
-			dep_cairo,
-			dep_glib,
-			] + deps_tools
-	executable('libinput-debug-gui',
-		   debug_gui_sources,
-		   dependencies : deps_debug_gui,
+	deps_tools = [ dep_tools_shared, dep_libinput ]
+	libinput_debug_events_sources = [
+		'tools/libinput-debug-events.c',
+		libinput_version_h,
+	]
+	executable('libinput-debug-events',
+		   libinput_debug_events_sources,
+		   dependencies : deps_tools,
 		   include_directories : [includes_src, includes_include],
 		   install_dir : libinput_tool_path,
 		   install : true
 		   )
-	configure_file(input : 'tools/libinput-debug-gui.man',
-		       output : 'libinput-debug-gui.1',
+	configure_file(input : 'tools/libinput-debug-events.man',
+		       output : 'libinput-debug-events.1',
 		       configuration : man_config,
 		       install_dir : dir_man1,
 		       )
-endif
 
-libinput_sources = [ 'tools/libinput-tool.c' ]
+	libinput_debug_tablet_sources = [ 'tools/libinput-debug-tablet.c' ]
+	executable('libinput-debug-tablet',
+		   libinput_debug_tablet_sources,
+		   dependencies : deps_tools,
+		   include_directories : [includes_src, includes_include],
+		   install_dir : libinput_tool_path,
+		   install : true)
 
-libinput_tool = executable('libinput',
-			   libinput_sources,
-			   dependencies : deps_tools,
+	configure_file(input : 'tools/libinput-debug-tablet.man',
+		       output : 'libinput-debug-tablet.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	libinput_quirks_sources = [ 'tools/libinput-quirks.c' ]
+	libinput_quirks = executable('libinput-quirks',
+				     libinput_quirks_sources,
+				     dependencies : [dep_libquirks, dep_tools_shared, dep_libinput],
+				     include_directories : [includes_src, includes_include],
+				     install_dir : libinput_tool_path,
+				     install : true
+				    )
+	test('validate-quirks',
+	     libinput_quirks,
+	     args: ['validate', '--data-dir=@0@'.format(dir_src_quirks)],
+	     suite : ['all']
+	     )
+
+	configure_file(input : 'tools/libinput-quirks.man',
+		       output : 'libinput-quirks.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+	# Same man page for the subtools to stay consistent with the other tools
+	configure_file(input : 'tools/libinput-quirks.man',
+		       output : 'libinput-quirks-list.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+	configure_file(input : 'tools/libinput-quirks.man',
+		       output : 'libinput-quirks-validate.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	libinput_list_devices_sources = [ 'tools/libinput-list-devices.c' ]
+	libinput_list_devices = executable('libinput-list-devices',
+					   libinput_list_devices_sources,
+					   dependencies : deps_tools,
+					   include_directories : [includes_src, includes_include],
+					   install_dir : libinput_tool_path,
+					   install : true,
+					  )
+	test('list-devices',
+	     libinput_list_devices,
+	     suite : ['all', 'root', 'hardware'])
+
+	configure_file(input : 'tools/libinput-list-devices.man',
+		       output : 'libinput-list-devices.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	libinput_measure_sources = [ 'tools/libinput-measure.c' ]
+	executable('libinput-measure',
+		   libinput_measure_sources,
+		   dependencies : deps_tools,
+		   include_directories : [includes_src, includes_include],
+		   install_dir : libinput_tool_path,
+		   install : true,
+		   )
+	configure_file(input : 'tools/libinput-measure.man',
+		       output : 'libinput-measure.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	src_python_tools = files(
+		      'tools/libinput-measure-fuzz.py',
+		      'tools/libinput-measure-touchpad-tap.py',
+		      'tools/libinput-measure-touchpad-pressure.py',
+		      'tools/libinput-measure-touch-size.py',
+	)
+
+	config_noop = configuration_data()
+	# Set a dummy replacement to silence meson warnings:
+	# meson.build:487: WARNING: Got an empty configuration_data() object and
+	# 		   found no substitutions in the input file 'foo'. If you
+	# 		   want to copy a file to the build dir, use the 'copy:'
+	# 		   keyword argument added in 0.47.0
+	config_noop.set('dummy', 'dummy')
+	foreach t : src_python_tools
+		configure_file(input: t,
+			       output: '@BASENAME@',
+			       configuration : config_noop,
+			       install_dir : libinput_tool_path
+			      )
+	endforeach
+
+	src_man = files(
+		      'tools/libinput-measure-fuzz.man',
+		      'tools/libinput-measure-touchpad-tap.man',
+		      'tools/libinput-measure-touchpad-pressure.man',
+		      'tools/libinput-measure-touch-size.man',
+	)
+
+	foreach m : src_man
+		configure_file(input : m,
+			       output : '@BASENAME@.1',
+			       configuration : man_config,
+			       install_dir : dir_man1)
+	endforeach
+
+	libinput_record_sources = [ 'tools/libinput-record.c', git_version_h ]
+	executable('libinput-record',
+		   libinput_record_sources,
+		   dependencies : deps_tools + [dep_udev],
+		   include_directories : [includes_src, includes_include],
+		   install_dir : libinput_tool_path,
+		   install : true,
+		   )
+	configure_file(input : 'tools/libinput-record.man',
+		       output : 'libinput-record.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	install_data('tools/libinput-replay',
+		     install_dir : libinput_tool_path)
+	configure_file(input : 'tools/libinput-replay.man',
+		       output : 'libinput-replay.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	if get_option('debug-gui')
+		if not have_udev
+			error('debug-gui requires -Dudev=true')
+		endif
+
+		dep_gtk = dependency('gtk+-3.0', version : '>= 3.20')
+		dep_cairo = dependency('cairo')
+		dep_glib = dependency('glib-2.0')
+
+		debug_gui_sources = [ 'tools/libinput-debug-gui.c' ]
+		deps_debug_gui = [
+				dep_gtk,
+				dep_cairo,
+				dep_glib,
+				] + deps_tools
+		executable('libinput-debug-gui',
+			   debug_gui_sources,
+			   dependencies : deps_debug_gui,
 			   include_directories : [includes_src, includes_include],
+			   install_dir : libinput_tool_path,
 			   install : true
-			  )
-configure_file(input : 'tools/libinput.man',
-	       output : 'libinput.1',
-	       configuration : man_config,
-	       install_dir : dir_man1,
-	       )
+			   )
+		configure_file(input : 'tools/libinput-debug-gui.man',
+			       output : 'libinput-debug-gui.1',
+			       configuration : man_config,
+			       install_dir : dir_man1,
+			       )
+	endif
 
-ptraccel_debug_sources = [ 'tools/ptraccel-debug.c' ]
-executable('ptraccel-debug',
-	   ptraccel_debug_sources,
-	   dependencies : [ dep_libfilter, dep_libinput ],
-	   include_directories : [includes_src, includes_include],
-	   install : false
-	   )
+	libinput_sources = [ 'tools/libinput-tool.c' ]
 
-# Don't run the test during a release build because we rely on the magic
-# subtool lookup
-if get_option('buildtype') == 'debug' or get_option('buildtype') == 'debugoptimized'
-	config_tool_option_test = configuration_data()
-	config_tool_option_test.set('MESON_ENABLED_DEBUG_GUI', get_option('debug-gui'))
-	tool_option_test = configure_file(input: 'tools/test-tool-option-parsing.py',
-					  output: '@BASENAME@',
-					  configuration : config_tool_option_test)
-	test('tool-option-parsing',
-	     tool_option_test,
-	     args : ['--tool-path', libinput_tool.full_path()],
-	     suite : ['all', 'root'],
-	     timeout : 240)
+	libinput_tool = executable('libinput',
+				   libinput_sources,
+				   dependencies : deps_tools,
+				   include_directories : [includes_src, includes_include],
+				   install : true
+				  )
+	configure_file(input : 'tools/libinput.man',
+		       output : 'libinput.1',
+		       configuration : man_config,
+		       install_dir : dir_man1,
+		       )
+
+	ptraccel_debug_sources = [ 'tools/ptraccel-debug.c' ]
+	executable('ptraccel-debug',
+		   ptraccel_debug_sources,
+		   dependencies : [ dep_libfilter, dep_libinput ],
+		   include_directories : [includes_src, includes_include],
+		   install : false
+		   )
+
+	# Don't run the test during a release build because we rely on the magic
+	# subtool lookup
+	if get_option('buildtype') == 'debug' or get_option('buildtype') == 'debugoptimized'
+		config_tool_option_test = configuration_data()
+		config_tool_option_test.set('MESON_ENABLED_DEBUG_GUI', get_option('debug-gui'))
+		tool_option_test = configure_file(input: 'tools/test-tool-option-parsing.py',
+						  output: '@BASENAME@',
+						  configuration : config_tool_option_test)
+		test('tool-option-parsing',
+		     tool_option_test,
+		     args : ['--tool-path', libinput_tool.full_path()],
+		     suite : ['all', 'root'],
+		     timeout : 240)
+	endif
+
+	# the libinput tools check whether we execute from the builddir, this is
+	# the test to verify that lookup. We test twice, once as normal test
+	# run from the builddir, once after copying to /tmp
+	test_builddir_lookup = executable('test-builddir-lookup',
+					  'test/test-builddir-lookup.c',
+					  dependencies : [ dep_tools_shared],
+					  include_directories : [includes_src, includes_include],
+					  install : false)
+	test('tools-builddir-lookup',
+	     test_builddir_lookup,
+	     args : ['--builddir-is-set'],
+	     suite : ['all'])
+	test('tools-builddir-lookup-installed',
+	     find_program('test/helper-copy-and-exec-from-tmp.sh'),
+	     args : [test_builddir_lookup.full_path(), '--builddir-is-null'],
+	     env : ['LD_LIBRARY_PATH=@0@'.format(meson.current_build_dir())],
+	     suite : ['all'],
+	     workdir : '/tmp')
 endif
-
-# the libinput tools check whether we execute from the builddir, this is
-# the test to verify that lookup. We test twice, once as normal test
-# run from the builddir, once after copying to /tmp
-test_builddir_lookup = executable('test-builddir-lookup',
-				  'test/test-builddir-lookup.c',
-				  dependencies : [ dep_tools_shared],
-				  include_directories : [includes_src, includes_include],
-				  install : false)
-test('tools-builddir-lookup',
-     test_builddir_lookup,
-     args : ['--builddir-is-set'],
-     suite : ['all'])
-test('tools-builddir-lookup-installed',
-     find_program('test/helper-copy-and-exec-from-tmp.sh'),
-     args : [test_builddir_lookup.full_path(), '--builddir-is-null'],
-     env : ['LD_LIBRARY_PATH=@0@'.format(meson.current_build_dir())],
-     suite : ['all'],
-     workdir : '/tmp')
 
 ############ tests ############
 
@@ -752,6 +770,10 @@ endif
 # This is the test suite runner, we allow disabling that one because of
 # dependencies
 if get_option('tests')
+	if not have_udev
+		error('tests require -Dudev=true')
+	endif
+
 	dep_check = dependency('check', version : '>= 0.9.10')
 
 	gstack = find_program('gstack', required : false)

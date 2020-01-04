@@ -25,7 +25,9 @@
 
 #include <string.h>
 #include <sys/stat.h>
+#if HAVE_UDEV
 #include <libudev.h>
+#endif
 
 #include "evdev.h"
 
@@ -38,6 +40,8 @@ struct path_input {
 struct path_device {
 	struct list link;
 	struct udev_device *udev_device;
+	const char *devnode;
+	const char *sysname;
 };
 
 struct path_seat {
@@ -121,33 +125,36 @@ path_seat_get_named(struct path_input *input,
 
 static struct path_seat *
 path_seat_get_for_device(struct path_input *input,
-			 struct udev_device *udev_device,
+			 struct path_device *dev,
 			 const char *seat_logical_name_override)
 {
 	struct path_seat *seat = NULL;
 	char *seat_name = NULL, *seat_logical_name = NULL;
 	const char *seat_prop;
 
-	const char *devnode, *sysname;
-
-	devnode = udev_device_get_devnode(udev_device);
-	sysname = udev_device_get_sysname(udev_device);
-
-	seat_prop = udev_device_get_property_value(udev_device, "ID_SEAT");
+#if HAVE_UDEV
+	seat_prop = udev_device_get_property_value(dev->udev_device, "ID_SEAT");
+#else
+	seat_prop = NULL;
+#endif
 	seat_name = safe_strdup(seat_prop ? seat_prop : default_seat);
 
 	if (seat_logical_name_override) {
 		seat_logical_name = safe_strdup(seat_logical_name_override);
 	} else {
-		seat_prop = udev_device_get_property_value(udev_device, "WL_SEAT");
+#if HAVE_UDEV
+		seat_prop = udev_device_get_property_value(dev->udev_device, "WL_SEAT");
+#else
+		seat_prop = NULL;
+#endif
 		seat_logical_name = strdup(seat_prop ? seat_prop : default_seat_name);
 	}
 
 	if (!seat_logical_name) {
 		log_error(&input->base,
 			  "%s: failed to create seat name for device '%s'.\n",
-			  sysname,
-			  devnode);
+			  dev->sysname,
+			  dev->devnode);
 		goto out;
 	}
 
@@ -158,8 +165,8 @@ path_seat_get_for_device(struct path_input *input,
 	if (!seat) {
 		log_info(&input->base,
 			 "%s: failed to create seat for device '%s'.\n",
-			 sysname,
-			 devnode);
+			 dev->sysname,
+			 dev->devnode);
 		goto out;
 	}
 
@@ -173,41 +180,41 @@ out:
 
 static struct libinput_device *
 path_device_enable(struct path_input *input,
-		   struct udev_device *udev_device,
+		   struct path_device *dev,
 		   const char *seat_logical_name_override)
 {
 	struct path_seat *seat;
 	struct evdev_device *device = NULL;
 	const char *output_name;
-	const char *devnode, *sysname;
 
-	devnode = udev_device_get_devnode(udev_device);
-	sysname = udev_device_get_sysname(udev_device);
-
-	seat = path_seat_get_for_device(input, udev_device, seat_logical_name_override);
+	seat = path_seat_get_for_device(input, dev, seat_logical_name_override);
 	if (!seat)
 		goto out;
 
-	device = evdev_device_create(&seat->base, udev_device);
+	device = evdev_device_create(&seat->base, dev->udev_device, dev->devnode, dev->sysname);
 	libinput_seat_unref(&seat->base);
 
 	if (device == EVDEV_UNHANDLED_DEVICE) {
 		device = NULL;
 		log_info(&input->base,
 			 "%-7s - not using input device '%s'.\n",
-			 sysname,
-			 devnode);
+			 dev->sysname,
+			 dev->devnode);
 		goto out;
 	} else if (device == NULL) {
 		log_info(&input->base,
 			 "%-7s - failed to create input device '%s'.\n",
-			 sysname,
-			 devnode);
+			 dev->sysname,
+			 dev->devnode);
 		goto out;
 	}
 
 	evdev_read_calibration_prop(device);
-	output_name = udev_device_get_property_value(udev_device, "WL_OUTPUT");
+#if HAVE_UDEV
+	output_name = udev_device_get_property_value(dev->udev_device, "WL_OUTPUT");
+#else
+	output_name = NULL;
+#endif
 	device->output_name = safe_strdup(output_name);
 
 out:
@@ -221,7 +228,7 @@ path_input_enable(struct libinput *libinput)
 	struct path_device *dev;
 
 	list_for_each(dev, &input->path_list, link) {
-		if (path_device_enable(input, dev->udev_device, NULL) == NULL) {
+		if (path_device_enable(input, dev, NULL) == NULL) {
 			path_input_disable(libinput);
 			return -1;
 		}
@@ -234,7 +241,11 @@ static void
 path_device_destroy(struct path_device *dev)
 {
 	list_remove(&dev->link);
+#if HAVE_UDEV
 	udev_device_unref(dev->udev_device);
+#else
+	free((char *)dev->devnode);
+#endif
 	free(dev);
 }
 
@@ -244,16 +255,18 @@ path_input_destroy(struct libinput *input)
 	struct path_input *path_input = (struct path_input*)input;
 	struct path_device *dev, *tmp;
 
+#if HAVE_UDEV
 	udev_unref(path_input->udev);
+#endif
 
 	list_for_each_safe(dev, tmp, &path_input->path_list, link)
 		path_device_destroy(dev);
-
 }
 
 static struct libinput_device *
 path_create_device(struct libinput *libinput,
 		   struct udev_device *udev_device,
+		   const char *devnode,
 		   const char *seat_name)
 {
 	struct path_input *input = (struct path_input*)libinput;
@@ -261,11 +274,23 @@ path_create_device(struct libinput *libinput,
 	struct libinput_device *device;
 
 	dev = zalloc(sizeof *dev);
+#if HAVE_UDEV
 	dev->udev_device = udev_device_ref(udev_device);
+	dev->devnode = udev_device_get_devnode(udev_device);
+	dev->sysname = udev_device_get_sysname(udev_device);
+#else
+	dev->udev_device = NULL;
+	dev->devnode = safe_strdup(devnode);
+	dev->sysname = strrchr(devnode, '/');
+	if (dev->sysname)
+		++dev->sysname;
+	else
+		dev->sysname = "";
+#endif
 
 	list_insert(&input->path_list, &dev->link);
 
-	device = path_device_enable(input, udev_device, seat_name);
+	device = path_device_enable(input, dev, seat_name);
 
 	if (!device)
 		path_device_destroy(dev);
@@ -280,15 +305,24 @@ path_device_change_seat(struct libinput_device *device,
 	struct libinput *libinput = device->seat->libinput;
 	struct evdev_device *evdev = evdev_device(device);
 	struct udev_device *udev_device = NULL;
+	char *devnode = NULL;
 	int rc = -1;
 
+#if HAVE_UDEV
 	udev_device = evdev->udev_device;
 	udev_device_ref(udev_device);
+#else
+	devnode = strdup(evdev->devnode);
+	if (!devnode)
+		return -1;
+#endif
 	libinput_path_remove_device(device);
 
-	if (path_create_device(libinput, udev_device, seat_name) != NULL)
+	if (path_create_device(libinput, udev_device, devnode, seat_name) != NULL)
 		rc = 0;
+#if HAVE_UDEV
 	udev_device_unref(udev_device);
+#endif
 	return rc;
 }
 
@@ -309,14 +343,20 @@ libinput_path_create_context(const struct libinput_interface *interface,
 	if (!interface)
 		return NULL;
 
+#if HAVE_UDEV
 	udev = udev_new();
 	if (!udev)
 		return NULL;
+#else
+	udev = NULL;
+#endif
 
 	input = zalloc(sizeof *input);
 	if (libinput_init(&input->base, interface,
 			  &interface_backend, user_data) != 0) {
+#if HAVE_UDEV
 		udev_unref(udev);
+#endif
 		free(input);
 		return NULL;
 	}
@@ -327,6 +367,7 @@ libinput_path_create_context(const struct libinput_interface *interface,
 	return &input->base;
 }
 
+#if HAVE_UDEV
 static inline struct udev_device *
 udev_device_from_devnode(struct libinput *libinput,
 			 struct udev *udev,
@@ -356,13 +397,12 @@ udev_device_from_devnode(struct libinput *libinput,
 
 	return dev;
 }
+#endif
 
 LIBINPUT_EXPORT struct libinput_device *
 libinput_path_add_device(struct libinput *libinput,
 			 const char *path)
 {
-	struct path_input *input = (struct path_input *)libinput;
-	struct udev *udev = input->udev;
 	struct udev_device *udev_device;
 	struct libinput_device *device;
 
@@ -378,7 +418,10 @@ libinput_path_add_device(struct libinput *libinput,
 		return NULL;
 	}
 
-	udev_device = udev_device_from_devnode(libinput, udev, path);
+#if HAVE_UDEV
+	struct path_input *input = (struct path_input *)libinput;
+
+	udev_device = udev_device_from_devnode(libinput, input->udev, path);
 	if (!udev_device) {
 		log_bug_client(libinput, "Invalid path %s\n", path);
 		return NULL;
@@ -388,6 +431,9 @@ libinput_path_add_device(struct libinput *libinput,
 		udev_device_unref(udev_device);
 		return NULL;
 	}
+#else
+	udev_device = NULL;
+#endif
 
 	/* We cannot do this during path_create_context because the log
 	 * handler isn't set up there but we really want to log to the right
@@ -396,8 +442,10 @@ libinput_path_add_device(struct libinput *libinput,
 	 */
 	libinput_init_quirks(libinput);
 
-	device = path_create_device(libinput, udev_device, NULL);
+	device = path_create_device(libinput, udev_device, path, NULL);
+#if HAVE_UDEV
 	udev_device_unref(udev_device);
+#endif
 	return device;
 }
 
@@ -416,7 +464,8 @@ libinput_path_remove_device(struct libinput_device *device)
 	}
 
 	list_for_each(dev, &input->path_list, link) {
-		if (dev->udev_device == evdev->udev_device) {
+		if (dev->udev_device == evdev->udev_device &&
+		    dev->devnode == evdev->devnode) {
 			path_device_destroy(dev);
 			break;
 		}

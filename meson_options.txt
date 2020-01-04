@@ -10,6 +10,10 @@ option('libwacom',
        type: 'boolean',
        value: true,
        description: 'Use libwacom for tablet identification (default=true)')
+option('udev',
+       type: 'boolean',
+       value: true,
+       description: 'Use libudev for device detection (default=true)')
 option('debug-gui',
        type: 'boolean',
        value: true,
@@ -18,6 +22,10 @@ option('tests',
        type: 'boolean',
        value: true,
        description: 'Build the tests [default=true]')
+option('tools',
+       type: 'boolean',
+       value: true,
+       description: 'Build the tools [default=true]')
 option('install-tests',
        type: 'boolean',
        value: false,
