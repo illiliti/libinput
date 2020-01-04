@@ -392,6 +392,8 @@ src_libinput = src_libfilter + [
 	'src/evdev-tablet-pad.c',
 	'src/evdev-tablet-pad.h',
 	'src/evdev-tablet-pad-leds.c',
+	'src/netlink-seat.c',
+	'src/netlink-seat.h',
 	'src/path-seat.c',
 	'src/udev-seat.c',
 	'src/udev-seat.h',
