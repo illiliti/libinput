@@ -301,6 +301,8 @@ enum litest_device_type {
 	LITEST_DELL_CANVAS_TOTEM,
 	LITEST_DELL_CANVAS_TOTEM_TOUCH,
 	LITEST_WACOM_ISDV4_4200_PEN,
+	LITEST_ALPS_3FG,
+	LITEST_ELAN_TABLET,
 };
 
 #define LITEST_DEVICELESS	-2
@@ -762,6 +764,10 @@ litest_is_switch_event(struct libinput_event *event,
 		       enum libinput_switch sw,
 		       enum libinput_switch_state state);
 
+struct libinput_event_tablet_tool *
+litest_is_proximity_event(struct libinput_event *event,
+			  enum libinput_tablet_tool_proximity_state state);
+
 void
 litest_assert_key_event(struct libinput *li, unsigned int key,
 			enum libinput_key_state state);
@@ -1148,6 +1154,14 @@ litest_send_file(int sock, int fd)
 	int n = read(fd, buf, 40960);
 	litest_assert_int_gt(n, 0);
 	return write(sock, buf, n);
+}
+
+static inline int litest_slot_count(struct litest_device *dev)
+{
+	if (dev->which == LITEST_ALPS_3FG)
+		return 2;
+
+	return libevdev_get_num_slots(dev->evdev);
 }
 
 #endif /* LITEST_H */

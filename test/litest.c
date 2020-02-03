@@ -1954,10 +1954,11 @@ slot_start(struct litest_device *d,
 
 	send_btntool(d, !touching);
 
-	if (d->interface->touch_down) {
-		d->interface->touch_down(d, slot, x, y);
-		return;
-	}
+	/* If the test device overrides touch_down and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->touch_down &&
+	    d->interface->touch_down(d, slot, x, y))
+	    return;
 
 	for (ev = d->interface->touch_down_events;
 	     ev && (int16_t)ev->type != -1 && (int16_t)ev->code != -1;
@@ -1991,10 +1992,9 @@ slot_move(struct litest_device *d,
 {
 	struct input_event *ev;
 
-	if (d->interface->touch_move) {
-		d->interface->touch_move(d, slot, x, y);
+	if (d->interface->touch_move &&
+	    d->interface->touch_move(d, slot, x, y))
 		return;
-	}
 
 	for (ev = d->interface->touch_move_events;
 	     ev && (int16_t)ev->type != -1 && (int16_t)ev->code != -1;
@@ -2036,8 +2036,8 @@ touch_up(struct litest_device *d, unsigned int slot)
 
 	send_btntool(d, false);
 
-	if (d->interface->touch_up) {
-		d->interface->touch_up(d, slot);
+	if (d->interface->touch_up &&
+	    d->interface->touch_up(d, slot)) {
 		return;
 	} else if (d->interface->touch_up_events) {
 		ev = d->interface->touch_up_events;
@@ -3505,21 +3505,30 @@ litest_assert_tablet_button_event(struct libinput *li, unsigned int button,
 	libinput_event_destroy(event);
 }
 
-void litest_assert_tablet_proximity_event(struct libinput *li,
-					  enum libinput_tablet_tool_proximity_state state)
+
+struct libinput_event_tablet_tool *
+litest_is_proximity_event(struct libinput_event *event,
+			  enum libinput_tablet_tool_proximity_state state)
 {
-	struct libinput_event *event;
 	struct libinput_event_tablet_tool *tev;
 	enum libinput_event_type type = LIBINPUT_EVENT_TABLET_TOOL_PROXIMITY;
-
-	litest_wait_for_event(li);
-	event = libinput_get_event(li);
 
 	litest_assert_notnull(event);
 	litest_assert_event_type(event, type);
 	tev = libinput_event_get_tablet_tool_event(event);
 	litest_assert_int_eq(libinput_event_tablet_tool_get_proximity_state(tev),
 			     state);
+	return tev;
+}
+
+void litest_assert_tablet_proximity_event(struct libinput *li,
+					  enum libinput_tablet_tool_proximity_state state)
+{
+	struct libinput_event *event;
+
+	litest_wait_for_event(li);
+	event = libinput_get_event(li);
+	litest_is_proximity_event(event, state);
 	libinput_event_destroy(event);
 }
 

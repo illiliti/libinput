@@ -1,5 +1,5 @@
 /*
- * Copyright © 2017 Red Hat, Inc.
+ * Copyright © 2020 Red Hat, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -27,16 +27,16 @@
 #include "litest-int.h"
 
 static struct input_event proximity_in[] = {
-	/* Note: this device does not send BTN_TOOL_PEN */
 	{ .type = EV_ABS, .code = ABS_X, .value = LITEST_AUTO_ASSIGN },
 	{ .type = EV_ABS, .code = ABS_Y, .value = LITEST_AUTO_ASSIGN },
-	/* Note: this device does not send tilt, despite claiming it has it */
 	{ .type = EV_ABS, .code = ABS_PRESSURE, .value = LITEST_AUTO_ASSIGN },
+	{ .type = EV_KEY, .code = BTN_TOOL_PEN, .value = 1 },
 	{ .type = EV_SYN, .code = SYN_REPORT, .value = 0 },
 	{ .type = -1, .code = -1 },
 };
 
 static struct input_event proximity_out[] = {
+	{ .type = EV_KEY, .code = BTN_TOOL_PEN, .value = 0 },
 	{ .type = EV_SYN, .code = SYN_REPORT, .value = 0 },
 	{ .type = -1, .code = -1 },
 };
@@ -44,7 +44,6 @@ static struct input_event proximity_out[] = {
 static struct input_event motion[] = {
 	{ .type = EV_ABS, .code = ABS_X, .value = LITEST_AUTO_ASSIGN },
 	{ .type = EV_ABS, .code = ABS_Y, .value = LITEST_AUTO_ASSIGN },
-	/* Note: this device does not send tilt, despite claiming it has it */
 	{ .type = EV_ABS, .code = ABS_PRESSURE, .value = LITEST_AUTO_ASSIGN },
 	{ .type = EV_SYN, .code = SYN_REPORT, .value = 0 },
 	{ .type = -1, .code = -1 },
@@ -70,81 +69,34 @@ static struct litest_device_interface interface = {
 };
 
 static struct input_absinfo absinfo[] = {
-	{ ABS_X, 0, 5999, 0, 0, 26 },
-	{ ABS_Y, 0, 4499, 0, 0, 15 },
-	{ ABS_WHEEL, 0, 1023, 0, 0, 0 }, /* mute axis */
-	{ ABS_PRESSURE, 0, 1023, 0, 0, 0 },
-	{ ABS_TILT_X, -128, 127, 0, 0, 0 }, /* mute axis */
-	{ ABS_TILT_Y, -128, 127, 0, 0, 0 }, /* mute axis */
+	{ ABS_X, 0, 18176, 0, 0, 62 },
+	{ ABS_Y, 0, 10240, 0, 0, 62 },
+	{ ABS_PRESSURE, 0, 4096, 0, 0, 0 },
 	{ .value = -1 },
 };
 
 static struct input_id input_id = {
-	.bustype = 0x3,
-	.vendor = 0x8ca,
-	.product = 0x10,
+	.bustype = 0x18,
+	.vendor = 0x4f3,
+	.product = 0x23b9,
+	.version = 0x100,
 };
 
 static int events[] = {
-	EV_KEY, KEY_ESC,
-	EV_KEY, KEY_F1,
-	EV_KEY, KEY_F2,
-	EV_KEY, KEY_F3,
-	EV_KEY, KEY_F4,
-	EV_KEY, KEY_F5,
-	EV_KEY, KEY_F6,
-	EV_KEY, KEY_F7,
-	EV_KEY, KEY_F8,
-	EV_KEY, KEY_F9,
-	EV_KEY, KEY_F10,
-	EV_KEY, KEY_F11,
-	EV_KEY, KEY_F12,
-	EV_KEY, KEY_STOP,
-	EV_KEY, KEY_AGAIN,
-	EV_KEY, KEY_PROPS,
-	EV_KEY, KEY_UNDO,
-	EV_KEY, KEY_FRONT,
-	EV_KEY, KEY_COPY,
-	EV_KEY, KEY_OPEN,
-	EV_KEY, KEY_PASTE,
-	EV_KEY, KEY_F13,
-	EV_KEY, KEY_F14,
-	EV_KEY, KEY_F15,
-	EV_KEY, KEY_F16,
-	EV_KEY, KEY_F17,
-	EV_KEY, KEY_F18,
-	EV_KEY, KEY_F19,
-	EV_KEY, KEY_F20,
-	EV_KEY, KEY_F21,
-	EV_KEY, KEY_F22,
-	EV_KEY, KEY_F23,
-	EV_KEY, KEY_F24,
-	EV_KEY, BTN_LEFT,
-	EV_KEY, BTN_RIGHT,
-	EV_KEY, BTN_MIDDLE,
 	EV_KEY, BTN_TOOL_PEN,
 	EV_KEY, BTN_TOOL_RUBBER,
-	EV_KEY, BTN_TOOL_BRUSH,
-	EV_KEY, BTN_TOOL_PENCIL,
-	EV_KEY, BTN_TOOL_AIRBRUSH,
-	EV_KEY, BTN_TOOL_MOUSE,
-	EV_KEY, BTN_TOOL_LENS,
 	EV_KEY, BTN_TOUCH,
 	EV_KEY, BTN_STYLUS,
-	EV_KEY, BTN_STYLUS2,
-	EV_REL, REL_X,
-	EV_REL, REL_Y,
-	EV_REL, REL_WHEEL,
-	EV_MSC, MSC_SERIAL,
+	EV_MSC, MSC_SCAN,
 	-1, -1,
 };
 
-TEST_DEVICE("aiptek-tablet",
-	.type = LITEST_AIPTEK,
-	.features = LITEST_TABLET | LITEST_HOVER,
+TEST_DEVICE("elan-tablet",
+	.type = LITEST_ELAN_TABLET,
+	.features = LITEST_TABLET,
 	.interface = &interface,
 
-	.name = "Aiptek",
+	.name = "ELAN2514:00 04F3:23B9",
 	.id = &input_id,
 	.events = events,
 	.absinfo = absinfo,
