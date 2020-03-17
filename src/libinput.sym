@@ -313,4 +313,6 @@ LIBINPUT_1.15 {
 	libinput_device_tablet_pad_has_key;
 	libinput_event_tablet_pad_get_key;
 	libinput_event_tablet_pad_get_key_state;
+	libinput_netlink_create_context;
+	libinput_netlink_assign_seat;
 } LIBINPUT_1.14;
