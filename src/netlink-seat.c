@@ -50,6 +50,27 @@ netlink_seat_create(struct netlink_input *input,
 static struct netlink_seat *
 netlink_seat_get_named(struct netlink_input *input, const char *seat_name);
 
+static inline bool
+filter_duplicates(struct netlink_seat *seat,
+		  const char *devnode)
+{
+	struct evdev_device *device;
+	bool ignore_device = false;
+
+	if (!seat)
+		return false;
+
+	list_for_each(device, &seat->base.devices_list, base.link) {
+		if (streq(device->devnode, devnode))
+			ignore_device = true;
+
+		if (ignore_device)
+			break;
+	}
+
+	return ignore_device;
+}
+
 static int
 device_added(struct netlink_input *input,
 	     const char *devnode)
@@ -61,6 +82,13 @@ device_added(struct netlink_input *input,
 	device_seat = default_seat;
 	seat_name = default_seat_name;
 	seat = netlink_seat_get_named(input, seat_name);
+
+	/* There is a race at startup: a device added between setting
+	 * up the udev monitor and enumerating all current devices may show
+	 * up in both lists. Filter those out.
+	 */
+	if (filter_duplicates(seat, devnode))
+		return 0;
 
 	if (seat)
 		libinput_seat_ref(&seat->base);

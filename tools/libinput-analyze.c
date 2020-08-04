@@ -26,47 +26,13 @@
 #include <getopt.h>
 #include <stdio.h>
 
-#include <libinput-version.h>
-
 #include "shared.h"
 
-static void
+static inline void
 usage(void)
 {
-	printf("Usage: libinput [--help|--version] <command> [<args>]\n"
-	       "\n"
-	       "Global options:\n"
-	       "  --help ...... show this help and exit\n"
-	       "  --version ... show version information and exit\n"
-	       "\n"
-	       "Commands:\n"
-	       "  list-devices\n"
-	       "	List all devices with their default configuration options\n"
-	       "\n"
-	       "  debug-events\n"
-	       "	Print events to stdout\n"
-	       "\n"
-	       "  debug-gui\n"
-	       "	Display a simple GUI to visualize libinput's events.\n"
-	       "\n"
-	       "  measure <feature>\n"
-	       "	Measure various device properties. See the man page for more info\n"
-	       "\n"
-	       "  analyze <feature>\n"
-	       "	Analyze device events. See the man page for more info\n"
-	       "\n"
-	       "  record\n"
-	       "	Record event stream from a device node. See the man page for more info\n"
-	       "\n"
-	       "  replay\n"
-	       "	Replay a previously recorded event stream. See the man page for more info\n"
-	       "\n");
+	printf("Usage: libinput analyze [--help] <feature>\n");
 }
-
-enum global_opts {
-	GOPT_HELP = 1,
-	GOPT_VERSION,
-};
 
 int
 main(int argc, char **argv)
@@ -76,8 +42,7 @@ main(int argc, char **argv)
 	while (1) {
 		int c;
 		static struct option opts[] = {
-			{ "help",	no_argument,	0, GOPT_HELP },
-			{ "version",	no_argument,	0, GOPT_VERSION },
+			{ "help",	no_argument,	0, 'h' },
 			{ 0, 0, 0, 0}
 		};
 
@@ -87,25 +52,21 @@ main(int argc, char **argv)
 
 		switch(c) {
 		case 'h':
-		case GOPT_HELP:
 			usage();
-			return EXIT_SUCCESS;
-		case GOPT_VERSION:
-			printf("%s\n", LIBINPUT_VERSION);
 			return EXIT_SUCCESS;
 		default:
 			usage();
-			return EXIT_INVALID_USAGE;
+			return EXIT_FAILURE;
 		}
 	}
 
 	if (optind >= argc) {
 		usage();
-		return EXIT_INVALID_USAGE;
+		return EXIT_FAILURE;
 	}
 
-	argv += optind;
-	argc -= optind;
+	argc--;
+	argv++;
 
-	return tools_exec_command("libinput", argc, argv);
+	return tools_exec_command("libinput-analyze", argc, argv);
 }
