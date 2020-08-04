@@ -2226,6 +2226,8 @@ evdev_device_create(struct libinput_seat *seat,
 	int fd;
 	int unhandled_device = 0;
 
+	assert(udev_device || (devnode && sysname));
+
 #if HAVE_UDEV
 	if (udev_device) {
 		devnode = udev_device_get_devnode(udev_device);
@@ -2286,9 +2288,9 @@ evdev_device_create(struct libinput_seat *seat,
 #endif
 	device->dispatch = NULL;
 	device->fd = fd;
-	device->devnode = devnode;
+	device->devnode = safe_strdup(devnode);
 	device->devname = libevdev_get_name(device->evdev);
-	device->sysname = sysname;
+	device->sysname = safe_strdup(sysname);
 	device->scroll.threshold = 5.0; /* Default may be overridden */
 	device->scroll.direction_lock_threshold = 5.0; /* Default may be overridden */
 	device->scroll.direction = 0;
@@ -2936,6 +2938,8 @@ evdev_device_destroy(struct evdev_device *device)
 	if (device->base.group)
 		libinput_device_group_unref(device->base.group);
 
+	free(device->devnode);
+	free(device->sysname);
 	free(device->output_name);
 	filter_destroy(device->pointer.filter);
 	libinput_timer_destroy(&device->scroll.timer);

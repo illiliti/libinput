@@ -168,9 +168,9 @@ struct evdev_device {
 	struct libevdev *evdev;
 	struct udev_device *udev_device;
 	char *output_name;
-	const char *devnode;
+	char *devnode;
 	const char *devname;
-	const char *sysname;
+	char *sysname;
 	bool was_removed;
 	int fd;
 	enum evdev_device_seat_capability seat_caps;
