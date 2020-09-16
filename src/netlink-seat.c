@@ -216,12 +216,16 @@ netlink_handler(void *data)
 {
 	struct netlink_input *input = data;
 	char buf[BUFSIZ], *key, *val;
+	struct msghdr msg = {
+		.msg_iov = &(struct iovec){.iov_base = buf, .iov_len = sizeof(buf)},
+		.msg_iovlen = 1,
+	};
 	ssize_t n;
 	size_t len;
 	char *action = NULL, *devname = NULL, *devnode, *sysname;
 
-	n = read(input->sock, buf, sizeof(buf));
-	if (n <= 0)
+	n = recvmsg(input->sock, &msg, 0);
+	if (n <= 0 || msg.msg_flags & MSG_TRUNC)
 		return;
 	for (key = buf; key < buf + n; key += len + 1) {
 		len = strlen(key);
