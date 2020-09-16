@@ -263,11 +263,11 @@ static int
 netlink_input_enable(struct libinput *libinput)
 {
 	int s;
+	struct netlink_input *input = (struct netlink_input*)libinput;
 	struct sockaddr_nl addr = {
 		.nl_family = AF_NETLINK,
-		.nl_groups = 1,
+		.nl_groups = input->groups,
 	};
-	struct netlink_input *input = (struct netlink_input*)libinput;
 
 	if (input->sock != -1)
 		return 0;
@@ -360,7 +360,7 @@ static const struct libinput_interface_backend interface_backend = {
 
 LIBINPUT_EXPORT struct libinput *
 libinput_netlink_create_context(const struct libinput_interface *interface,
-				void *user_data)
+				void *user_data, int groups)
 {
 	struct netlink_input *input;
 
@@ -369,6 +369,7 @@ libinput_netlink_create_context(const struct libinput_interface *interface,
 
 	input = zalloc(sizeof(*input));
 	input->sock = -1;
+	input->groups = groups;
 
 	if (libinput_init(&input->base, interface,
 			  &interface_backend, user_data) != 0) {

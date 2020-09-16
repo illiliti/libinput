@@ -3447,12 +3447,14 @@ libinput_path_remove_device(struct libinput_device *device);
  * @param interface The callback interface
  * @param user_data Caller-specific data passed to the various callback
  * interfaces.
+ * @param groups Netlink groups on which to listen for uevent
+ * messages (1 for kernel messages).
  *
  * @return An initialized, but inactive libinput context or NULL on error
  */
 struct libinput *
 libinput_netlink_create_context(const struct libinput_interface *interface,
-				void *user_data);
+				void *user_data, int groups);
 
 /**
  * @ingroup base
