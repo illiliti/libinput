@@ -53,8 +53,7 @@ static const char default_seat[] = "seat0";
 static const char default_seat_name[] = "default";
 
 static void
-path_disable_device(struct libinput *libinput,
-		    struct evdev_device *device)
+path_disable_device(struct evdev_device *device)
 {
 	struct libinput_seat *seat = device->base.seat;
 	struct evdev_device *dev, *next;
@@ -80,7 +79,7 @@ path_input_disable(struct libinput *libinput)
 		libinput_seat_ref(&seat->base);
 		list_for_each_safe(device, next,
 				   &seat->base.devices_list, base.link)
-			path_disable_device(libinput, device);
+			path_disable_device(device);
 		libinput_seat_unref(&seat->base);
 	}
 }
@@ -473,6 +472,6 @@ libinput_path_remove_device(struct libinput_device *device)
 
 	seat = device->seat;
 	libinput_seat_ref(seat);
-	path_disable_device(libinput, evdev);
+	path_disable_device(evdev);
 	libinput_seat_unref(seat);
 }

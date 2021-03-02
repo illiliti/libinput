@@ -24,11 +24,13 @@
 #include "config.h"
 
 #include <errno.h>
+#include <sys/epoll.h>
 #include <inttypes.h>
 #include <linux/input.h>
 #include <libevdev/libevdev.h>
 #include <libudev.h>
 #include <sys/signalfd.h>
+#include <sys/timerfd.h>
 #include <sys/utsname.h>
 #include <sys/stat.h>
 #include <string.h>
@@ -112,9 +114,48 @@ struct record_context {
 	unsigned int indent;
 
 	struct libinput *libinput;
+
+	int epoll_fd;
+	struct list sources;
+
+	struct {
+		bool had_events_since_last_time;
+		bool skipped_timer_print;
+	} timestamps;
+
+	bool had_events;
+	bool stop;
 };
 
-static inline bool
+#define resize(array_, sz_) \
+{ \
+	size_t new_size = (sz_) + 1000; \
+	void *tmp = realloc((array_), new_size * sizeof(*(array_))); \
+	assert(tmp); \
+	(array_)  = tmp; \
+	(sz_) = new_size; \
+}
+
+static struct event *
+next_event(struct record_device *d)
+{
+	if (d->nevents == d->events_sz)
+		resize(d->events, d->events_sz);
+	return &d->events[d->nevents++];
+}
+
+typedef void (*source_dispatch_t)(struct record_context *ctx,
+				  int fd,
+				  void *user_data);
+
+struct source {
+	source_dispatch_t dispatch;
+	void *user_data;
+	int fd;
+	struct list link;
+};
+
+static bool
 obfuscate_keycode(struct input_event *ev)
 {
 	switch (ev->type) {
@@ -135,13 +176,13 @@ obfuscate_keycode(struct input_event *ev)
 	return false;
 }
 
-static inline void
+static void
 indent_push(struct record_context *ctx)
 {
 	ctx->indent += 2;
 }
 
-static inline void
+static void
 indent_pop(struct record_context *ctx)
 {
 	assert(ctx->indent >= 2);
@@ -149,9 +190,9 @@ indent_pop(struct record_context *ctx)
 }
 
 /**
- * Indented dprintf, indentation is given as second parameter.
+ * Indented dprintf, indentation is in the context
  */
-static inline void
+static void
 iprintf(const struct record_context *ctx, const char *format, ...)
 {
 	va_list args;
@@ -184,7 +225,7 @@ iprintf(const struct record_context *ctx, const char *format, ...)
 /**
  * Normal printf, just wrapped for the context
  */
-static inline void
+static void
 noiprintf(const struct record_context *ctx, const char *format, ...)
 {
 	va_list args;
@@ -196,13 +237,13 @@ noiprintf(const struct record_context *ctx, const char *format, ...)
 	assert(rc != -1 && (unsigned int)rc > 0);
 }
 
-static inline uint64_t
+static uint64_t
 time_offset(struct record_context *ctx, uint64_t time)
 {
 	return ctx->offset ? time - ctx->offset : 0;
 }
 
-static inline void
+static void
 print_evdev_event(struct record_context *ctx,
 		  struct record_device *dev,
 		  struct input_event *ev)
@@ -341,16 +382,7 @@ print_evdev_event(struct record_context *ctx,
 		desc);
 }
 
-#define resize(array_, sz_) \
-{ \
-	size_t new_size = (sz_) + 1000; \
-	void *tmp = realloc((array_), new_size * sizeof(*(array_))); \
-	assert(tmp); \
-	(array_)  = tmp; \
-	(sz_) = new_size; \
-}
-
-static inline size_t
+static size_t
 handle_evdev_frame(struct record_context *ctx, struct record_device *d)
 {
 	struct libevdev *evdev = d->evdev;
@@ -369,10 +401,7 @@ handle_evdev_frame(struct record_context *ctx, struct record_device *d)
 		else
 			time = time_offset(ctx, time);
 
-		if (d->nevents == d->events_sz)
-			resize(d->events, d->events_sz);
-
-		event = &d->events[d->nevents++];
+		event = next_event(d);
 		event->type = EVDEV;
 		event->time = time;
 		event->u.evdev = e;
@@ -398,11 +427,8 @@ handle_evdev_frame(struct record_context *ctx, struct record_device *d)
 
 	if (d->touch.slot_state != d->touch.last_slot_state) {
 		d->touch.last_slot_state = d->touch.slot_state;
-		if (d->nevents == d->events_sz)
-			resize(d->events, d->events_sz);
-
 		if (d->touch.slot_state == 0) {
-			event = &d->events[d->nevents++];
+			event = next_event(d);
 			event->type = COMMENT;
 			event->time = last_time;
 			snprintf(event->u.comment,
@@ -1348,7 +1374,7 @@ print_cached_events(struct record_context *ctx,
 	indent_pop(ctx);
 }
 
-static inline size_t
+static size_t
 handle_libinput_events(struct record_context *ctx,
 		       struct record_device *d)
 {
@@ -1375,10 +1401,7 @@ handle_libinput_events(struct record_context *ctx,
 			assert(found);
 		}
 
-		if (current->nevents == current->events_sz)
-			resize(current->events, current->events_sz);
-
-		event = &current->events[current->nevents++];
+		event = next_event(current);
 		event->type = LIBINPUT;
 		buffer_libinput_event(ctx, e, event);
 
@@ -1389,7 +1412,7 @@ handle_libinput_events(struct record_context *ctx,
 	return count;
 }
 
-static inline void
+static void
 handle_events(struct record_context *ctx, struct record_device *d, bool print)
 {
 	while(true) {
@@ -1412,7 +1435,7 @@ handle_events(struct record_context *ctx, struct record_device *d, bool print)
 	}
 }
 
-static inline void
+static void
 print_libinput_header(struct record_context *ctx)
 {
 	iprintf(ctx, "libinput:\n");
@@ -1424,7 +1447,7 @@ print_libinput_header(struct record_context *ctx)
 	indent_pop(ctx);
 }
 
-static inline void
+static void
 print_system_header(struct record_context *ctx)
 {
 	struct utsname u;
@@ -1480,16 +1503,17 @@ print_system_header(struct record_context *ctx)
 	indent_pop(ctx);
 }
 
-static inline void
+static void
 print_header(struct record_context *ctx)
 {
+	iprintf(ctx, "# libinput record\n");
 	iprintf(ctx, "version: %d\n", FILE_VERSION_NUMBER);
 	iprintf(ctx, "ndevices: %d\n", ctx->ndevices);
 	print_libinput_header(ctx);
 	print_system_header(ctx);
 }
 
-static inline void
+static void
 print_description_abs(struct record_context *ctx,
 		      struct libevdev *dev,
 		      unsigned int code)
@@ -1507,7 +1531,7 @@ print_description_abs(struct record_context *ctx,
 	iprintf(ctx, "#       Resolution %6d\n", abs->resolution);
 }
 
-static inline void
+static void
 print_description_state(struct record_context *ctx,
 			struct libevdev *dev,
 			unsigned int type,
@@ -1517,7 +1541,7 @@ print_description_state(struct record_context *ctx,
 	iprintf(ctx, "#       State %d\n", state);
 }
 
-static inline void
+static void
 print_description_codes(struct record_context *ctx,
 			struct libevdev *dev,
 			unsigned int type)
@@ -1558,7 +1582,7 @@ print_description_codes(struct record_context *ctx,
 	}
 }
 
-static inline void
+static void
 print_description(struct record_context *ctx, struct libevdev *dev)
 {
 	const struct input_absinfo *x, *y;
@@ -1607,7 +1631,7 @@ print_description(struct record_context *ctx, struct libevdev *dev)
 	}
 }
 
-static inline void
+static void
 print_bits_info(struct record_context *ctx, struct libevdev *dev)
 {
 	iprintf(ctx, "name: \"%s\"\n", libevdev_get_name(dev));
@@ -1619,7 +1643,7 @@ print_bits_info(struct record_context *ctx, struct libevdev *dev)
 		libevdev_get_id_version(dev));
 }
 
-static inline void
+static void
 print_bits_absinfo(struct record_context *ctx, struct libevdev *dev)
 {
 	const struct input_absinfo *abs;
@@ -1647,13 +1671,13 @@ print_bits_absinfo(struct record_context *ctx, struct libevdev *dev)
 	indent_pop(ctx);
 }
 
-static inline void
+static void
 print_bits_codes(struct record_context *ctx,
 		 struct libevdev *dev,
 		 unsigned int type)
 {
 	int max;
-	bool first = true;
+	const char *sep = "";
 
 	max = libevdev_event_type_get_max(type);
 	if (max == -1)
@@ -1665,14 +1689,14 @@ print_bits_codes(struct record_context *ctx,
 		if (!libevdev_has_event_code(dev, type, code))
 			continue;
 
-		noiprintf(ctx, "%s%d", first ? "" : ", ", code);
-		first = false;
+		noiprintf(ctx, "%s%d", sep, code);
+		sep = ", ";
 	}
 
 	noiprintf(ctx, "] # %s\n", libevdev_event_type_get_name(type));
 }
 
-static inline void
+static void
 print_bits_types(struct record_context *ctx, struct libevdev *dev)
 {
 	iprintf(ctx, "codes:\n");
@@ -1685,22 +1709,22 @@ print_bits_types(struct record_context *ctx, struct libevdev *dev)
 	indent_pop(ctx);
 }
 
-static inline void
+static void
 print_bits_props(struct record_context *ctx, struct libevdev *dev)
 {
-	bool first = true;
+	const char *sep = "";
 
 	iprintf(ctx, "properties: [");
 	for (unsigned int prop = 0; prop < INPUT_PROP_CNT; prop++) {
 		if (libevdev_has_property(dev, prop)) {
-			noiprintf(ctx, "%s%d", first ? "" : ", ", prop);
-			first = false;
+			noiprintf(ctx, "%s%d", sep, prop);
+			sep = ", ";
 		}
 	}
 	noiprintf(ctx, "]\n"); /* last entry, no comma */
 }
 
-static inline void
+static void
 print_evdev_description(struct record_context *ctx, struct record_device *dev)
 {
 	struct libevdev *evdev = dev->evdev;
@@ -1717,32 +1741,29 @@ print_evdev_description(struct record_context *ctx, struct record_device *dev)
 	indent_pop(ctx);
 }
 
-static inline void
+static void
 print_hid_report_descriptor(struct record_context *ctx,
 			    struct record_device *dev)
 {
 	const char *prefix = "/dev/input/event";
-	const char *node;
 	char syspath[PATH_MAX];
 	unsigned char buf[1024];
 	int len;
 	int fd;
-	bool first = true;
+	const char *sep = "";
 
 	/* we take the shortcut rather than the proper udev approach, the
 	   report_descriptor is available in sysfs and two devices up from
-	   our device. 2 digits for the event number should be enough.
+	   our device.
 	   This approach won't work for /dev/input/by-id devices. */
-	if (!strstartswith(dev->devnode, prefix) ||
-	    strlen(dev->devnode) > strlen(prefix) + 2)
+	if (!strstartswith(dev->devnode, prefix))
 		return;
 
-	node = &dev->devnode[strlen(prefix)];
 	len = snprintf(syspath,
 		       sizeof(syspath),
-		       "/sys/class/input/event%s/device/device/report_descriptor",
-		       node);
-	if (len < 55 || len > 56)
+		       "/sys/class/input/%s/device/device/report_descriptor",
+		       safe_basename(dev->devnode));
+	if (len <= 0)
 		return;
 
 	fd = open(syspath, O_RDONLY);
@@ -1754,16 +1775,16 @@ print_hid_report_descriptor(struct record_context *ctx,
 	while ((len = read(fd, buf, sizeof(buf))) > 0) {
 		for (int i = 0; i < len; i++) {
 			/* YAML requires decimal */
-			noiprintf(ctx, "%s%u",first ? "" : ", ", buf[i]);
-			first = false;
+			noiprintf(ctx, "%s%u", sep, buf[i]);
+			sep = ", ";
 		}
 	}
-	noiprintf(ctx, " ]\n");
+	noiprintf(ctx, "]\n");
 
 	close(fd);
 }
 
-static inline void
+static void
 print_udev_properties(struct record_context *ctx, struct record_device *dev)
 {
 	struct udev *udev = NULL;
@@ -1829,7 +1850,7 @@ list_print(void *userdata, const char *val)
 	iprintf(ctx, "- %s\n", val);
 }
 
-static inline void
+static void
 print_device_quirks(struct record_context *ctx, struct record_device *dev)
 {
 	struct udev *udev = NULL;
@@ -1883,7 +1904,8 @@ out:
 	udev_unref(udev);
 	quirks_context_unref(quirks);
 }
-static inline void
+
+static void
 print_libinput_description(struct record_context *ctx,
 			   struct record_device *dev)
 {
@@ -1902,7 +1924,7 @@ print_libinput_description(struct record_context *ctx,
 		{LIBINPUT_DEVICE_CAP_SWITCH, "switch"},
 	};
 	struct cap *cap;
-	bool is_first;
+	const char *sep = "";
 
 	if (!device)
 		return;
@@ -1914,12 +1936,11 @@ print_libinput_description(struct record_context *ctx,
 		iprintf(ctx, "size: [%.f, %.f]\n", w, h);
 
 	iprintf(ctx, "capabilities: [");
-	is_first = true;
 	ARRAY_FOR_EACH(caps, cap) {
 		if (!libinput_device_has_capability(device, cap->cap))
 			continue;
-		noiprintf(ctx, "%s%s", is_first ? "" : ", ", cap->name);
-		is_first = false;
+		noiprintf(ctx, "%s%s", sep, cap->name);
+		sep = ", ";
 	}
 	noiprintf(ctx, "]\n");
 
@@ -1931,7 +1952,7 @@ print_libinput_description(struct record_context *ctx,
 	indent_pop(ctx);
 }
 
-static inline void
+static void
 print_device_description(struct record_context *ctx, struct record_device *dev)
 {
 	iprintf(ctx, "- node: %s\n", dev->devnode);
@@ -1947,7 +1968,7 @@ static int is_event_node(const struct dirent *dir) {
 	return strneq(dir->d_name, "event", 5);
 }
 
-static inline char *
+static char *
 select_device(void)
 {
 	struct dirent **namelist;
@@ -1956,12 +1977,16 @@ select_device(void)
 	char *device_path;
 	bool has_eaccess = false;
 	int available_devices = 0;
+	const char *prefix = "";
+
+	if (!isatty(STDERR_FILENO))
+		prefix = "# ";
 
 	ndev = scandir("/dev/input", &namelist, is_event_node, versionsort);
 	if (ndev <= 0)
 		return NULL;
 
-	fprintf(stderr, "Available devices:\n");
+	fprintf(stderr, "%sAvailable devices:\n", prefix);
 	for (int i = 0; i < ndev; i++) {
 		struct libevdev *device;
 		char path[PATH_MAX];
@@ -1983,7 +2008,7 @@ select_device(void)
 		if (rc != 0)
 			continue;
 
-		fprintf(stderr, "%s:	%s\n", path, libevdev_get_name(device));
+		fprintf(stderr, "%s%s:	%s\n", prefix, path, libevdev_get_name(device));
 		libevdev_free(device);
 		available_devices++;
 	}
@@ -1993,14 +2018,13 @@ select_device(void)
 	free(namelist);
 
 	if (available_devices == 0) {
-		fprintf(stderr, "No devices available. ");
-		if (has_eaccess)
-				fprintf(stderr, "Please re-run as root.");
-		fprintf(stderr, "\n");
+		fprintf(stderr,
+			"No devices available.%s\n",
+			has_eaccess ? " Please re-run as root." : "");
 		return NULL;
 	}
 
-	fprintf(stderr, "Select the device event number: ");
+	fprintf(stderr, "%sSelect the device event number: ", prefix);
 	rc = scanf("%d", &selected_device);
 
 	if (rc != 1 || selected_device < 0)
@@ -2013,7 +2037,7 @@ select_device(void)
 	return device_path;
 }
 
-static inline char **
+static char **
 all_devices(void)
 {
 	struct dirent **namelist;
@@ -2094,7 +2118,7 @@ open_output_file(struct record_context *ctx, bool is_prefix)
 	return true;
 }
 
-static inline void
+static void
 print_progress_bar(void)
 {
 	static uint8_t foo = 0;
@@ -2107,58 +2131,206 @@ print_progress_bar(void)
 	fprintf(stderr, "\rReceiving events: [%*s%*s]", foo, "*", 21 - foo, " ");
 }
 
+static void
+print_wall_time(struct record_context *ctx)
+{
+	time_t t = time(NULL);
+	struct tm tm;
+
+	localtime_r(&t, &tm);
+	iprintf(ctx, "# Current time is %02d:%02d:%02d\n", tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
+
+static void
+arm_timer(int timerfd)
+{
+	time_t t = time(NULL);
+	struct tm tm;
+	struct itimerspec interval = {
+		.it_value = { 0, 0 },
+		.it_interval = { 5, 0 },
+	};
+
+	localtime_r(&t, &tm);
+	interval.it_value.tv_sec = 5 - (tm.tm_sec % 5);
+	timerfd_settime(timerfd, 0, &interval, NULL);
+}
+
+static struct source *
+add_source(struct record_context *ctx,
+	   int fd,
+	   source_dispatch_t dispatch,
+	   void *user_data)
+{
+	struct source *source;
+	struct epoll_event ep;
+
+	assert(fd != -1);
+
+	source = zalloc(sizeof *source);
+	source->dispatch = dispatch;
+	source->user_data = user_data;
+	source->fd = fd;
+	list_append(&ctx->sources, &source->link);
+
+	memset(&ep, 0, sizeof ep);
+	ep.events = EPOLLIN;
+	ep.data.ptr = source;
+
+	if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, fd, &ep) < 0) {
+		free(source);
+		return NULL;
+	}
+
+	return source;
+}
+
+static void
+destroy_source(struct record_context *ctx, struct source *source)
+{
+	list_remove(&source->link);
+	epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, source->fd, NULL);
+	close(source->fd);
+	free(source);
+}
+
+static void
+signalfd_dispatch(struct record_context *ctx, int fd, void *data)
+{
+	struct signalfd_siginfo fdsi;
+
+	(void)read(fd, &fdsi, sizeof(fdsi));
+
+	ctx->stop = true;
+}
+
+static void
+timefd_dispatch(struct record_context *ctx, int fd, void *data)
+{
+	char discard[64];
+
+	(void)read(fd, discard, sizeof(discard));
+
+	if (ctx->timestamps.had_events_since_last_time) {
+		print_wall_time(ctx);
+		ctx->timestamps.had_events_since_last_time = false;
+		ctx->timestamps.skipped_timer_print = false;
+	} else {
+		ctx->timestamps.skipped_timer_print = true;
+	}
+}
+
+static void
+evdev_dispatch(struct record_context *ctx, int fd, void *data)
+{
+	struct record_device *first_device = NULL;
+	struct record_device *this_device = data;
+
+	if (ctx->timestamps.skipped_timer_print) {
+		print_wall_time(ctx);
+		ctx->timestamps.skipped_timer_print = false;
+	}
+
+	ctx->had_events = true;
+	ctx->timestamps.had_events_since_last_time = true;
+
+	first_device = list_first_entry(&ctx->devices, first_device, link);
+	handle_events(ctx, this_device, this_device == first_device);
+}
+
+static void
+libinput_ctx_dispatch(struct record_context *ctx, int fd, void *data)
+{
+	struct record_device *first_device = NULL;
+	size_t count, offset;
+
+	/* This function should only handle events caused by internal
+	 * timeouts etc. The real input events caused by the evdev devices
+	 * are already processed in handle_events */
+	first_device = list_first_entry(&ctx->devices, first_device, link);
+	libinput_dispatch(ctx->libinput);
+	offset = first_device->nevents;
+	count = handle_libinput_events(ctx, first_device);
+	if (count) {
+		print_cached_events(ctx,
+				    first_device,
+				    offset,
+				    count);
+	}
+}
+
+static int
+dispatch_sources(struct record_context *ctx)
+{
+	struct source *source;
+	struct epoll_event ep[64];
+	int i, count;
+
+	count = epoll_wait(ctx->epoll_fd, ep, ARRAY_LENGTH(ep), ctx->timeout);
+	if (count < 0)
+		return -errno;
+
+	for (i = 0; i < count; ++i) {
+		source = ep[i].data.ptr;
+		if (source->fd == -1)
+			continue;
+		source->dispatch(ctx, source->fd, source->user_data);
+	}
+
+	return count;
+}
+
 static int
 mainloop(struct record_context *ctx)
 {
 	bool autorestart = (ctx->timeout > 0);
-	struct pollfd fds[ctx->ndevices + 2];
-	unsigned int nfds = 0;
+	struct source *source, *tmp;
 	struct record_device *d = NULL;
-	struct record_device *first_device = NULL;
-	struct timespec ts;
 	sigset_t mask;
+	int sigfd, timerfd;
 
 	assert(ctx->timeout != 0);
 	assert(!list_empty(&ctx->devices));
+
+	ctx->epoll_fd = epoll_create1(0);
+	assert(ctx->epoll_fd >= 0);
 
 	sigemptyset(&mask);
 	sigaddset(&mask, SIGINT);
 	sigaddset(&mask, SIGQUIT);
 	sigprocmask(SIG_BLOCK, &mask, NULL);
 
-	fds[0].fd = signalfd(-1, &mask, SFD_NONBLOCK);
-	fds[0].events = POLLIN;
-	fds[0].revents = 0;
-	assert(fds[0].fd != -1);
-	nfds++;
+	sigfd = signalfd(-1, &mask, SFD_NONBLOCK);
+	add_source(ctx, sigfd, signalfd_dispatch, NULL);
 
-	if (ctx->libinput) {
-		fds[1].fd = libinput_get_fd(ctx->libinput);
-		fds[1].events = POLLIN;
-		fds[1].revents = 0;
-		nfds++;
-		assert(nfds == 2);
-	}
+	timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC|TFD_NONBLOCK);
+	add_source(ctx, timerfd, timefd_dispatch, NULL);
+	arm_timer(timerfd);
 
 	list_for_each(d, &ctx->devices, link) {
-		fds[nfds].fd = libevdev_get_fd(d->evdev);
-		fds[nfds].events = POLLIN;
-		fds[nfds].revents = 0;
-		assert(fds[nfds].fd != -1);
-		nfds++;
+		add_source(ctx, libevdev_get_fd(d->evdev), evdev_dispatch, d);
+	}
+
+	if (ctx->libinput) {
+		/* See the note in the dispatch function */
+		add_source(ctx,
+			   libinput_get_fd(ctx->libinput),
+			   libinput_ctx_dispatch,
+			   NULL);
 	}
 
 	/* If we have more than one device, the time starts at recording
 	 * start time. Otherwise, the first event starts the recording time.
 	 */
 	if (ctx->ndevices > 1) {
+		struct timespec ts;
+
 		clock_gettime(CLOCK_MONOTONIC, &ts);
 		ctx->offset = s2us(ts.tv_sec) + ns2us(ts.tv_nsec);
 	}
 
 	do {
-		int rc;
-		bool had_events = false; /* we delete files without events */
+		struct record_device *first_device = NULL;
 
 		if (!open_output_file(ctx, autorestart)) {
 			fprintf(stderr,
@@ -2166,7 +2338,11 @@ mainloop(struct record_context *ctx)
 				ctx->output_file);
 			break;
 		}
-		fprintf(stderr, "Recording to '%s'.\n", ctx->output_file);
+		fprintf(stderr, "%sRecording to '%s'.\n",
+			isatty(STDERR_FILENO) ? "" : "# ",
+			ctx->output_file);
+
+		ctx->had_events = false;
 
 		print_header(ctx);
 		if (autorestart)
@@ -2184,6 +2360,7 @@ mainloop(struct record_context *ctx)
 						link);
 		print_device_description(ctx, first_device);
 
+		print_wall_time(ctx);
 		iprintf(ctx, "events:\n");
 		indent_push(ctx);
 
@@ -2195,47 +2372,23 @@ mainloop(struct record_context *ctx)
 		}
 
 		while (true) {
-			rc = poll(fds, nfds, ctx->timeout);
-			if (rc == -1) { /* error */
-				fprintf(stderr, "Error: %m\n");
-				autorestart = false;
-				break;
-			} else if (rc == 0) {
-				fprintf(stderr,
-					" ... timeout%s\n",
-					had_events ? "" : " (file is empty)");
-				break;
-			} else if (fds[0].revents != 0) { /* signal */
-				autorestart = false;
+			int rc = dispatch_sources(ctx);
+			if (rc < 0) { /* error */
+				fprintf(stderr, "Error: %s\n", strerror(-rc));
+				ctx->stop = true;
 				break;
 			}
 
-			/* Pull off the evdev events first since they cause
-			 * libinput events.
-			 * handle_events de-queues libinput events so by the
-			 * time we finish that, we hopefully have all evdev
-			 * events and libinput events roughly in sync.
-			 */
-			had_events = true;
-			list_for_each(d, &ctx->devices, link)
-				handle_events(ctx, d, d == first_device);
+			/* set by the signalfd handler */
+			if (ctx->stop)
+				break;
 
-			/* This shouldn't pull any events off unless caused
-			 * by libinput-internal timeouts (e.g. tapping) */
-			if (ctx->libinput && fds[1].revents) {
-				size_t count, offset;
+			if (rc == 0) {
+				fprintf(stderr,
+					" ... timeout%s\n",
+					ctx->had_events ? "" : " (file is empty)");
+				break;
 
-				libinput_dispatch(ctx->libinput);
-				offset = first_device->nevents;
-				count = handle_libinput_events(ctx,
-							       first_device);
-				if (count) {
-					print_cached_events(ctx,
-							    first_device,
-							    offset,
-							    count);
-				}
-				rc--;
 			}
 
 			if (ctx->out_fd != STDOUT_FILENO)
@@ -2270,7 +2423,7 @@ mainloop(struct record_context *ctx)
 
 		/* If we didn't have events, delete the file. */
 		if (!isatty(ctx->out_fd)) {
-			if (!had_events && ctx->output_file) {
+			if (!ctx->had_events && ctx->output_file) {
 				fprintf(stderr, "No events recorded, deleting '%s'\n", ctx->output_file);
 				unlink(ctx->output_file);
 			}
@@ -2280,17 +2433,20 @@ mainloop(struct record_context *ctx)
 		}
 		free(ctx->output_file);
 		ctx->output_file = NULL;
-	} while (autorestart);
-
-	close(fds[0].fd);
+	} while (autorestart && !ctx->stop);
 
 	sigprocmask(SIG_UNBLOCK, &mask, NULL);
+
+	list_for_each_safe(source, tmp, &ctx->sources, link) {
+		destroy_source(ctx, source);
+	}
+	close(ctx->epoll_fd);
 
 	return 0;
 }
 
-static inline bool
-init_device(struct record_context *ctx, char *path)
+static bool
+init_device(struct record_context *ctx, char *path, bool grab)
 {
 	struct record_device *d;
 	int fd, rc;
@@ -2318,6 +2474,17 @@ init_device(struct record_context *ctx, char *path)
 			d->devnode,
 			strerror(-rc));
 		goto error;
+	}
+
+	if (grab) {
+		rc = libevdev_grab(d->evdev, LIBEVDEV_GRAB);
+		if (rc != 0) {
+			fprintf(stderr,
+				"Grab failed on %s: %s\n",
+				path,
+				strerror(-rc));
+			goto error;
+		}
 	}
 
 	libevdev_set_clock_id(d->evdev, CLOCK_MONOTONIC);
@@ -2352,7 +2519,7 @@ const struct libinput_interface interface = {
 	.close_restricted = close_restricted,
 };
 
-static inline bool
+static bool
 init_libinput(struct record_context *ctx)
 {
 	struct record_device *dev;
@@ -2386,7 +2553,7 @@ init_libinput(struct record_context *ctx)
 	return true;
 }
 
-static inline void
+static void
 usage(void)
 {
 	printf("Usage: %s [--help] [--all] [--autorestart] [--output-file filename] [/dev/input/event0] [...]\n"
@@ -2417,7 +2584,8 @@ enum ftype {
 	F_NOEXIST,
 };
 
-static inline enum ftype is_char_dev(const char *path)
+static enum ftype
+is_char_dev(const char *path)
 {
 	struct stat st;
 
@@ -2441,6 +2609,7 @@ enum options {
 	OPT_MULTIPLE,
 	OPT_ALL,
 	OPT_LIBINPUT,
+	OPT_GRAB,
 };
 
 int
@@ -2458,15 +2627,17 @@ main(int argc, char **argv)
 		{ "all", no_argument, 0, OPT_ALL },
 		{ "help", no_argument, 0, OPT_HELP },
 		{ "with-libinput", no_argument, 0, OPT_LIBINPUT },
+		{ "grab", no_argument, 0, OPT_GRAB },
 		{ 0, 0, 0, 0 },
 	};
 	struct record_device *d, *tmp;
 	const char *output_arg = NULL;
-	bool all = false, with_libinput = false;
+	bool all = false, with_libinput = false, grab = false;
 	int ndevices;
 	int rc = EXIT_FAILURE;
 
 	list_init(&ctx.devices);
+	list_init(&ctx.sources);
 
 	while (1) {
 		int c;
@@ -2505,6 +2676,9 @@ main(int argc, char **argv)
 			break;
 		case OPT_LIBINPUT:
 			with_libinput = true;
+			break;
+		case OPT_GRAB:
+			grab = true;
 			break;
 		default:
 			usage();
@@ -2603,7 +2777,7 @@ main(int argc, char **argv)
 		d = devices;
 
 		while (*d) {
-			if (!init_device(&ctx, safe_strdup(*d))) {
+			if (!init_device(&ctx, safe_strdup(*d), grab)) {
 				strv_free(devices);
 				goto out;
 			}
@@ -2622,7 +2796,7 @@ main(int argc, char **argv)
 		for (int i = ndevices; i > 0; i -= 1) {
 			char *devnode = safe_strdup(argv[optind + i - 1]);
 
-			if (!init_device(&ctx, devnode))
+			if (!init_device(&ctx, devnode, grab))
 				goto out;
 		}
 	} else {
@@ -2633,7 +2807,7 @@ main(int argc, char **argv)
 			goto out;
 		}
 
-		if (!init_device(&ctx, path))
+		if (!init_device(&ctx, path, grab))
 			goto out;
 	}
 

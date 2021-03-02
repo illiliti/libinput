@@ -113,7 +113,9 @@ device_added(struct netlink_input *input,
 			 sysname,
 			 devnode);
 		return 0;
-	} else if (device == NULL) {
+	}
+
+	if (device == NULL) {
 		log_info(&input->base,
 			 "%-7s - failed to create input device '%s'\n",
 			 sysname,

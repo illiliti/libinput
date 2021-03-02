@@ -779,8 +779,8 @@ evdev_scroll_get_button_lock(struct libinput_device *device)
 
 	if (evdev->scroll.lock_state == BUTTONSCROLL_LOCK_DISABLED)
 		return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_DISABLED;
-	else
-		return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_ENABLED;
+
+	return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_ENABLED;
 }
 
 static enum libinput_config_scroll_button_lock_state
@@ -1857,7 +1857,9 @@ evdev_configure_device(struct evdev_device *device)
 		evdev_log_info(device,
 			 "device is an accelerometer, ignoring\n");
 		return NULL;
-	} else if (udev_tags & EVDEV_UDEV_TAG_ACCELEROMETER) {
+	}
+
+	if (udev_tags & EVDEV_UDEV_TAG_ACCELEROMETER) {
 		evdev_disable_accelerometer_axes(device);
 	}
 
@@ -1904,7 +1906,9 @@ evdev_configure_device(struct evdev_device *device)
 		evdev_log_info(device, "device is a tablet pad\n");
 		return dispatch;
 
-	} else if ((udev_tags & tablet_tags) == EVDEV_UDEV_TAG_TABLET) {
+	}
+
+	if ((udev_tags & tablet_tags) == EVDEV_UDEV_TAG_TABLET) {
 		dispatch = evdev_tablet_create(device);
 		device->seat_caps |= EVDEV_DEVICE_TABLET;
 		evdev_log_info(device, "device is a tablet\n");
@@ -2109,22 +2113,9 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 	struct quirks_context *quirks;
 	struct quirks *q;
 	const struct quirk_tuples *t;
+	const uint32_t *props = NULL;
+	size_t nprops = 0;
 	char *prop;
-
-	/* Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
-	 * fdo bug 97147. Remove when RMI4 is commonplace */
-	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_HP_STREAM11_TOUCHPAD))
-		libevdev_enable_property(device->evdev,
-					 INPUT_PROP_BUTTONPAD);
-
-	/* Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
-	 * https://gitlab.freedesktop.org/libinput/libinput/issues/177 and
-	 * https://gitlab.freedesktop.org/libinput/libinput/issues/234 */
-	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_T480S_TOUCHPAD) ||
-	    evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_T490S_TOUCHPAD) ||
-	    evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_L380_TOUCHPAD))
-		libevdev_enable_property(device->evdev,
-					 INPUT_PROP_BUTTONPAD);
 
 	/* Touchpad claims to have 4 slots but only ever sends 2
 	 * https://bugs.freedesktop.org/show_bug.cgi?id=98100 */
@@ -2142,12 +2133,36 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 		libevdev_disable_event_code(device->evdev, EV_MSC, MSC_TIMESTAMP);
 	}
 
-	if (q && quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_DISABLE, &t)) {
-		int type, code;
-
+	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_ENABLE, &t)) {
 		for (size_t i = 0; i < t->ntuples; i++) {
-			type = t->tuples[i].first;
-			code = t->tuples[i].second;
+			const struct input_absinfo absinfo = {
+				.minimum = 0,
+				.maximum = 1,
+			};
+
+			int type = t->tuples[i].first;
+			int code = t->tuples[i].second;
+
+			if (code == EVENT_CODE_UNDEFINED)
+				libevdev_enable_event_type(device->evdev, type);
+			else
+				libevdev_enable_event_code(device->evdev,
+							    type,
+							    code,
+							    type == EV_ABS ?  &absinfo : NULL);
+			evdev_log_debug(device,
+					"quirks: enabling %s %s (%#x %#x)\n",
+					libevdev_event_type_get_name(type),
+					libevdev_event_code_get_name(type, code),
+					type,
+					code);
+		}
+	}
+
+	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_DISABLE, &t)) {
+		for (size_t i = 0; i < t->ntuples; i++) {
+			int type = t->tuples[i].first;
+			int code = t->tuples[i].second;
 
 			if (code == EVENT_CODE_UNDEFINED)
 				libevdev_disable_event_type(device->evdev,
@@ -2165,8 +2180,40 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 		}
 	}
 
-	quirks_unref(q);
+	if (quirks_get_uint32_array(q,
+				    QUIRK_ATTR_INPUT_PROP_ENABLE,
+				    &props,
+				    &nprops)) {
+		for (size_t idx = 0; idx < nprops; idx++) {
+			unsigned int p = props[idx];
+			libevdev_enable_property(device->evdev, p);
+			evdev_log_debug(device,
+					"quirks: enabling %s (%#x)\n",
+					libevdev_property_get_name(p),
+					p);
+		}
+	}
 
+	if (quirks_get_uint32_array(q,
+					 QUIRK_ATTR_INPUT_PROP_DISABLE,
+					 &props,
+					 &nprops)) {
+#if HAVE_LIBEVDEV_DISABLE_PROPERTY
+		for (size_t idx = 0; idx < nprops; idx++) {
+			unsigned int p = props[idx];
+			libevdev_disable_property(device->evdev, p);
+			evdev_log_debug(device,
+					"quirks: disabling %s (%#x)\n",
+					libevdev_property_get_name(p),
+					p);
+		}
+#else
+		evdev_log_error(device,
+				"quirks: a quirk for this device requires newer libevdev than installed\n");
+#endif
+	}
+
+	quirks_unref(q);
 }
 
 static void
@@ -2302,8 +2349,8 @@ evdev_device_create(struct libinput_seat *seat,
 
 	/* at most 5 SYN_DROPPED log-messages per 30s */
 	ratelimit_init(&device->syn_drop_limit, s2us(30), 5);
-	/* at most 5 "delayed processing" log messages per minute */
-	ratelimit_init(&device->delay_warning_limit, s2us(60), 5);
+	/* at most 5 "delayed processing" log messages per hour */
+	ratelimit_init(&device->delay_warning_limit, s2us(60 * 60), 5);
 	/* at most 5 log-messages per 5s */
 	ratelimit_init(&device->nonpointer_rel_limit, s2us(5), 5);
 

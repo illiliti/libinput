@@ -65,6 +65,8 @@
 
 #include <linux/kd.h>
 
+#define evbit(t, c) ((t) << 16U | (c & 0xffff))
+
 #define UDEV_RULES_D "/run/udev/rules.d"
 #define UDEV_FUZZ_OVERRIDE_RULE_FILE UDEV_RULES_D \
 	"/91-litest-fuzz-override-REMOVEME-XXXXXX.rules"
@@ -427,25 +429,6 @@ static struct suite *
 get_suite(const char *name)
 {
 	struct suite *s;
-	/* this is the list meson calls, ensure we don't miss out on tests */
-	const char * allowed_suites[] = {
-		"config:", "context:", "device:", "events:", "gestures:",
-		"keyboard:", "lid:", "log:", "misc:", "pad:", "path:",
-		"pointer:", "quirks:", "switch:", "tablet:", "tablet-mode:",
-		"tap:", "timer:", "totem:", "touch:", "touchpad:",
-		"trackball:", "trackpoint:", "udev:",
-	};
-	const char **allowed;
-	bool found = false;
-
-	ARRAY_FOR_EACH(allowed_suites, allowed) {
-		if (strstartswith(name, *allowed)) {
-			found = true;
-			break;
-		}
-	}
-	if (!found)
-		litest_abort_msg("Suite name '%s' is not allowed\n", name);
 
 	list_for_each(s, &all_tests, node) {
 		if (streq(s->name, name))
@@ -462,13 +445,28 @@ get_suite(const char *name)
 }
 
 static void
-litest_add_tcase(const char *suite_name,
+create_suite_name(const char *filename, char suitename[64])
+{
+	char *trunk = trunkname(filename);
+	char *p = trunk;
+
+	/* strip the test- prefix */
+	if (strstartswith(trunk, "test-"))
+		p += 5;
+
+	snprintf(suitename, 64, "%s", p);
+	free(trunk);
+}
+
+static void
+litest_add_tcase(const char *filename,
 		 const char *funcname,
 		 const void *func,
 		 int64_t required,
 		 int64_t excluded,
 		 const struct range *range)
 {
+	char suite_name[65];
 	struct suite *suite;
 	bool added = false;
 
@@ -480,9 +478,9 @@ litest_add_tcase(const char *suite_name,
 	    fnmatch(filter_test, funcname, 0) != 0)
 		return;
 
-	if (filter_group &&
-	    strstr(suite_name, filter_group) == NULL &&
-	    fnmatch(filter_group, suite_name, 0) != 0)
+	create_suite_name(filename, suite_name);
+
+	if (filter_group && fnmatch(filter_group, suite_name, 0) != 0)
 		return;
 
 	suite = get_suite(suite_name);
@@ -616,7 +614,7 @@ _litest_add_for_device(const char *name,
 }
 
 void
-_litest_add_ranged_for_device(const char *name,
+_litest_add_ranged_for_device(const char *filename,
 			      const char *funcname,
 			      const void *func,
 			      enum litest_device_type type,
@@ -625,6 +623,7 @@ _litest_add_ranged_for_device(const char *name,
 	struct suite *s;
 	struct litest_test_device *dev;
 	bool device_filtered = false;
+	char suite_name[64];
 
 	litest_assert(type < LITEST_NO_DEVICE);
 
@@ -633,12 +632,11 @@ _litest_add_ranged_for_device(const char *name,
 	    fnmatch(filter_test, funcname, 0) != 0)
 		return;
 
-	if (filter_group &&
-	    strstr(name, filter_group) == NULL &&
-	    fnmatch(filter_group, name, 0) != 0)
+	create_suite_name(filename, suite_name);
+	if (filter_group && fnmatch(filter_group, suite_name, 0) != 0)
 		return;
 
-	s = get_suite(name);
+	s = get_suite(suite_name);
 	list_for_each(dev, &devices, node) {
 		if (filter_device &&
 		    strstr(dev->shortname, filter_device) == NULL &&
@@ -1424,7 +1422,7 @@ litest_install_model_quirks(struct list *created_files_list)
 				false);
 	list_insert(created_files_list, &file->link);
 
-	/* Ony install the litest device rule when we're running as system
+	/* Only install the litest device rule when we're running as system
 	 * test suite, we expect the others to be in place already */
 	if (use_system_rules_quirks)
 		return;
@@ -1812,6 +1810,7 @@ litest_add_device_with_overrides(struct libinput *libinput,
 			d->interface->min[ABS_Y] = libevdev_get_abs_minimum(d->evdev, code);
 			d->interface->max[ABS_Y] = libevdev_get_abs_maximum(d->evdev, code);
 		}
+		d->interface->tool_type = BTN_TOOL_PEN;
 	}
 	return d;
 }
@@ -1892,7 +1891,7 @@ udev_wait_for_device_event(struct udev_monitor *udev_monitor,
 		udev_device = udev_monitor_receive_device(udev_monitor);
 		litest_assert_notnull(udev_device);
 		udev_action = udev_device_get_action(udev_device);
-		if (!streq(udev_action, udev_event)) {
+		if (!udev_action || !streq(udev_action, udev_event)) {
 			udev_device_unref(udev_device);
 			continue;
 		}
@@ -2444,15 +2443,56 @@ tablet_ignore_event(const struct input_event *ev, int value)
 }
 
 void
+litest_tablet_set_tool_type(struct litest_device *d, unsigned int code)
+{
+	switch (code) {
+	case BTN_TOOL_PEN:
+	case BTN_TOOL_RUBBER:
+	case BTN_TOOL_BRUSH:
+	case BTN_TOOL_PENCIL:
+	case BTN_TOOL_AIRBRUSH:
+	case BTN_TOOL_MOUSE:
+	case BTN_TOOL_LENS:
+		break;
+	default:
+		abort();
+	}
+
+	d->interface->tool_type = code;
+}
+
+static void
+litest_tool_event(struct litest_device *d, int value)
+{
+	unsigned int tool = d->interface->tool_type;
+
+	litest_event(d, EV_KEY, tool, value);
+}
+
+void
 litest_tablet_proximity_in(struct litest_device *d, int x, int y, struct axis_replacement *axes)
 {
 	struct input_event *ev;
 
+	/* If the test device overrides proximity_in and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->tablet_proximity_in &&
+	    d->interface->tablet_proximity_in(d, d->interface->tool_type, x, y, axes))
+		return;
+
 	ev = d->interface->tablet_proximity_in_events;
 	while (ev && (int16_t)ev->type != -1 && (int16_t)ev->code != -1) {
-		int value = auto_assign_tablet_value(d, ev, x, y, axes);
-		if (!tablet_ignore_event(ev, value))
-			litest_event(d, ev->type, ev->code, value);
+		int value;
+
+		switch (evbit(ev->type, ev->code)) {
+		case evbit(EV_KEY, LITEST_BTN_TOOL_AUTO):
+			litest_tool_event(d, ev->value);
+			break;
+		default:
+			value = auto_assign_tablet_value(d, ev, x, y, axes);
+			if (!tablet_ignore_event(ev, value))
+				litest_event(d, ev->type, ev->code, value);
+		}
 		ev++;
 	}
 }
@@ -2462,11 +2502,26 @@ litest_tablet_proximity_out(struct litest_device *d)
 {
 	struct input_event *ev;
 
+	/* If the test device overrides proximity_out and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->tablet_proximity_out &&
+	    d->interface->tablet_proximity_out(d, d->interface->tool_type))
+		return;
+
 	ev = d->interface->tablet_proximity_out_events;
 	while (ev && (int16_t)ev->type != -1 && (int16_t)ev->code != -1) {
-		int value = auto_assign_tablet_value(d, ev, -1, -1, NULL);
-		if (!tablet_ignore_event(ev, value))
-			litest_event(d, ev->type, ev->code, value);
+		int value;
+
+		switch (evbit(ev->type, ev->code)) {
+		case evbit(EV_KEY, LITEST_BTN_TOOL_AUTO):
+			litest_tool_event(d, ev->value);
+			break;
+		default:
+			value = auto_assign_tablet_value(d, ev, -1, -1, NULL);
+			if (!tablet_ignore_event(ev, value))
+				litest_event(d, ev->type, ev->code, value);
+			break;
+		}
 		ev++;
 	}
 }
@@ -3591,6 +3646,20 @@ litest_is_gesture_event(struct libinput_event *event,
 	return gevent;
 }
 
+void
+litest_assert_gesture_event(struct libinput *li,
+			    enum libinput_event_type type,
+			    int nfingers)
+{
+	struct libinput_event *event;
+
+	litest_wait_for_event(li);
+	event = libinput_get_event(li);
+
+	litest_is_gesture_event(event, type, nfingers);
+	libinput_event_destroy(event);
+}
+
 struct libinput_event_tablet_tool *
 litest_is_tablet_event(struct libinput_event *event,
 		       enum libinput_event_type type)
@@ -3780,13 +3849,12 @@ litest_assert_pad_button_event(struct libinput *li,
 			       enum libinput_button_state state)
 {
 	struct libinput_event *event;
-	struct libinput_event_tablet_pad *pev;
 
 	litest_wait_for_event(li);
 	event = libinput_get_event(li);
 
-	pev = litest_is_pad_button_event(event, button, state);
-	libinput_event_destroy(libinput_event_tablet_pad_get_base_event(pev));
+	litest_is_pad_button_event(event, button, state);
+	libinput_event_destroy(event);
 }
 
 void
@@ -3795,13 +3863,12 @@ litest_assert_pad_key_event(struct libinput *li,
 			    enum libinput_key_state state)
 {
 	struct libinput_event *event;
-	struct libinput_event_tablet_pad *pev;
 
 	litest_wait_for_event(li);
 	event = libinput_get_event(li);
 
-	pev = litest_is_pad_key_event(event, key, state);
-	libinput_event_destroy(libinput_event_tablet_pad_get_base_event(pev));
+	litest_is_pad_key_event(event, key, state);
+	libinput_event_destroy(event);
 }
 
 void
@@ -3865,8 +3932,7 @@ litest_assert_only_typed_events(struct libinput *li,
 	litest_assert_notnull(event);
 
 	while (event) {
-		litest_assert_int_eq(libinput_event_get_type(event),
-                                     type);
+		litest_assert_event_type(event, type);
 		libinput_event_destroy(event);
 		libinput_dispatch(li);
 		event = libinput_get_event(li);
@@ -4003,7 +4069,7 @@ litest_assert_touch_cancel(struct libinput *li)
 void
 litest_timeout_tap(void)
 {
-	msleep(200);
+	msleep(300);
 }
 
 void
@@ -4557,22 +4623,19 @@ main(int argc, char **argv)
 	if (mode == LITEST_MODE_ERROR)
 		return EXIT_FAILURE;
 
-	if (!run_deviceless && (rc = check_device_access()) != 0)
-			return rc;
-
 	litest_init_test_devices();
-
 	list_init(&all_tests);
-
-	setenv("CK_DEFAULT_TIMEOUT", "30", 0);
-	setenv("LIBINPUT_RUNNING_TEST_SUITE", "1", 1);
-
 	setup_tests();
-
 	if (mode == LITEST_MODE_LIST) {
 		litest_list_tests(&all_tests);
 		return EXIT_SUCCESS;
 	}
+
+	if (!run_deviceless && (rc = check_device_access()) != 0)
+		return rc;
+
+	setenv("CK_DEFAULT_TIMEOUT", "30", 0);
+	setenv("LIBINPUT_RUNNING_TEST_SUITE", "1", 1);
 
 	if (setrlimit(RLIMIT_CORE, &corelimit) != 0)
 		perror("WARNING: Core dumps not disabled");

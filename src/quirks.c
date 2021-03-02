@@ -60,6 +60,14 @@ enum property_type {
 	PT_RANGE,
 	PT_DOUBLE,
 	PT_TUPLES,
+	PT_UINT_ARRAY,
+};
+
+struct quirk_array {
+	union {
+		uint32_t u[32];
+	} data;
+	size_t nelements;
 };
 
 /**
@@ -82,6 +90,7 @@ struct property {
 		struct quirk_dimensions dim;
 		struct quirk_range range;
 		struct quirk_tuples tuples;
+		struct quirk_array array;
 	} value;
 };
 
@@ -242,11 +251,8 @@ quirk_get_name(enum quirk q)
 	case QUIRK_MODEL_HP_STREAM11_TOUCHPAD:		return "ModelHPStream11Touchpad";
 	case QUIRK_MODEL_HP_ZBOOK_STUDIO_G3:		return "ModelHPZBookStudioG3";
 	case QUIRK_MODEL_INVERT_HORIZONTAL_SCROLLING:	return "ModelInvertHorizontalScrolling";
-	case QUIRK_MODEL_LENOVO_L380_TOUCHPAD:		return "ModelLenovoL380Touchpad";
 	case QUIRK_MODEL_LENOVO_SCROLLPOINT:		return "ModelLenovoScrollPoint";
 	case QUIRK_MODEL_LENOVO_T450_TOUCHPAD:		return "ModelLenovoT450Touchpad";
-	case QUIRK_MODEL_LENOVO_T480S_TOUCHPAD:		return "ModelLenovoT480sTouchpad";
-	case QUIRK_MODEL_LENOVO_T490S_TOUCHPAD:		return "ModelLenovoT490sTouchpad";
 	case QUIRK_MODEL_LENOVO_X1GEN6_TOUCHPAD:	return "ModelLenovoX1Gen6Touchpad";
 	case QUIRK_MODEL_LENOVO_X230:			return "ModelLenovoX230";
 	case QUIRK_MODEL_SYNAPTICS_SERIAL_TOUCHPAD:	return "ModelSynapticsSerialTouchpad";
@@ -276,6 +282,9 @@ quirk_get_name(enum quirk q)
 	case QUIRK_ATTR_THUMB_SIZE_THRESHOLD:		return "AttrThumbSizeThreshold";
 	case QUIRK_ATTR_MSC_TIMESTAMP:			return "AttrMscTimestamp";
 	case QUIRK_ATTR_EVENT_CODE_DISABLE:		return "AttrEventCodeDisable";
+	case QUIRK_ATTR_EVENT_CODE_ENABLE:		return "AttrEventCodeEnable";
+	case QUIRK_ATTR_INPUT_PROP_DISABLE:		return "AttrInputPropDisable";
+	case QUIRK_ATTR_INPUT_PROP_ENABLE:		return "AttrInputPropEnable";
 	default:
 		abort();
 	}
@@ -728,10 +737,15 @@ parse_attr(struct quirks_context *ctx,
 		p->type = PT_STRING;
 		p->value.s = safe_strdup(value);
 		rc = true;
-	} else if (streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_DISABLE))) {
+	} else if (streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_DISABLE)) ||
+		   streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_ENABLE))) {
 		struct input_event events[32];
 		size_t nevents = ARRAY_LENGTH(events);
-		p->id = QUIRK_ATTR_EVENT_CODE_DISABLE;
+		if (streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_DISABLE)))
+		    p->id = QUIRK_ATTR_EVENT_CODE_DISABLE;
+		else
+		    p->id = QUIRK_ATTR_EVENT_CODE_ENABLE;
+
 		if (!parse_evcode_property(value, events, &nevents) ||
 		    nevents == 0)
 			goto out;
@@ -742,6 +756,24 @@ parse_attr(struct quirks_context *ctx,
 		}
 		p->value.tuples.ntuples = nevents;
 		p->type = PT_TUPLES;
+
+		rc = true;
+	} else if (streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP_DISABLE)) ||
+		   streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP_ENABLE))) {
+		unsigned int props[INPUT_PROP_CNT];
+		size_t nprops = ARRAY_LENGTH(props);
+		if (streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP_DISABLE)))
+			p->id = QUIRK_ATTR_INPUT_PROP_DISABLE;
+		else
+			p->id = QUIRK_ATTR_INPUT_PROP_ENABLE;
+
+		if (!parse_input_prop_property(value, props, &nprops) ||
+		    nprops == 0)
+			goto out;
+
+		memcpy(p->value.array.data.u, props, nprops * sizeof(unsigned int));
+		p->value.array.nelements = nprops;
+		p->type = PT_UINT_ARRAY;
 
 		rc = true;
 	} else {
@@ -907,7 +939,7 @@ parse_file(struct quirks_context *ctx, const char *path)
 			break;
 		default:
 			/* entries must start with A-Z */
-			if (line[0] < 'A' && line[0] > 'Z') {
+			if (line[0] < 'A' || line[0] > 'Z') {
 				qlog_parser(ctx, "%s:%d: Unexpected line %s\n",
 						 path, lineno, line);
 				goto out;
@@ -1582,6 +1614,28 @@ quirks_get_tuples(struct quirks *q,
 
 	assert(p->type == PT_TUPLES);
 	*tuples = &p->value.tuples;
+
+	return true;
+}
+
+bool
+quirks_get_uint32_array(struct quirks *q,
+			enum quirk which,
+			const uint32_t **array,
+			size_t *nelements)
+{
+	struct property *p;
+
+	if (!q)
+		return false;
+
+	p = quirk_find_prop(q, which);
+	if (!p)
+		return false;
+
+	assert(p->type == PT_UINT_ARRAY);
+	*array = p->value.array.data.u;
+	*nelements = p->value.array.nelements;
 
 	return true;
 }

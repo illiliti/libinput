@@ -131,7 +131,9 @@ device_added(struct udev_device *udev_device,
 			 sysname,
 			 devnode);
 		return 0;
-	} else if (device == NULL) {
+	}
+
+	if (device == NULL) {
 		log_info(&input->base,
 			 "%-7s - failed to create input device '%s'\n",
 			 sysname,
@@ -290,8 +292,11 @@ udev_input_enable(struct libinput *libinput)
 		return -1;
 	}
 
-	udev_monitor_filter_add_match_subsystem_devtype(input->udev_monitor,
-			"input", NULL);
+	if (udev_monitor_filter_add_match_subsystem_devtype(
+				input->udev_monitor, "input", NULL)) {
+		log_info(libinput, "udev: failed to set up filter\n");
+		return -1;
+	}
 
 	if (udev_monitor_enable_receiving(input->udev_monitor)) {
 		log_info(libinput, "udev: failed to bind the udev monitor\n");

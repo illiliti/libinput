@@ -1423,7 +1423,7 @@ handle_event_libinput(GIOChannel *source, GIOCondition condition, gpointer data)
 	struct window *w = libinput_get_user_data(li);
 	struct libinput_event *ev;
 
-	libinput_dispatch(li);
+	tools_dispatch(li);
 
 	while ((ev = libinput_get_event(li))) {
 		switch (libinput_event_get_type(ev)) {
@@ -1488,7 +1488,6 @@ handle_event_libinput(GIOChannel *source, GIOCondition condition, gpointer data)
 		}
 
 		libinput_event_destroy(ev);
-		libinput_dispatch(li);
 	}
 	gtk_widget_queue_draw(w->area);
 

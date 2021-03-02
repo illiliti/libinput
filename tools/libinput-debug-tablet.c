@@ -391,7 +391,6 @@ handle_libinput_events(struct context *ctx)
 		}
 
 		libinput_event_destroy(ev);
-		libinput_dispatch(li);
 	}
 }
 
