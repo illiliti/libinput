@@ -205,3 +205,36 @@ ModelTabletModeNoSuspend=1
 MatchName=AT Raw Set 2 keyboard
 MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX1Tablet:*
 ModelTabletModeNoSuspend=1
+
+# Misidentified as an external keyboard by libinput
+# Tested on Legion 5 15AR05H 
+[Lenovo Legion 5 Keyboard]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x048D
+MatchProduct=0xC100
+AttrKeyboardIntegration=internal
+
+[Lenovo Legion 5 Keyboard]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x048D
+MatchProduct=0xC955
+AttrKeyboardIntegration=internal
+
+# Tested on Lenovo Legion 5 Pro 16ACH6H
+[Lenovo Legion 5 Pro Keyboard]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x048D
+MatchProduct=0xC101
+AttrKeyboardIntegration=internal
+
+# https://gitlab.freedesktop.org/libinput/libinput/-/issues/604
+[Lenovo Yoga Slim 9 14ITL5 Pressurepad]
+MatchBus=i2c
+MatchVendor=0x27C6
+MatchProduct=0x01E8
+AttrEventCodeDisable=ABS_MT_PRESSURE;ABS_PRESSURE;
+
+

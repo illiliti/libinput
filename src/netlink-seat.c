@@ -131,11 +131,11 @@ device_added(struct netlink_input *input,
 static void
 device_removed(struct netlink_input *input, const char *devnode)
 {
-	struct evdev_device *device, *next;
+	struct evdev_device *device;
 	struct netlink_seat *seat;
 
 	list_for_each(seat, &input->base.seat_list, base.link) {
-		list_for_each_safe(device, next,
+		list_for_each_safe(device,
 				   &seat->base.devices_list, base.link) {
 			if (streq(devnode, device->devnode)) {
 				evdev_device_remove(device);
@@ -150,7 +150,7 @@ select_device(const struct dirent *entry)
 {
 	const char *p;
 
-	if (strncmp(entry->d_name, "event", 5) != 0)
+	if (!strneq(entry->d_name, "event", 5))
 		return 0;
 	for (p = entry->d_name + 5; '0' <= *p && *p <= '9'; ++p)
 		;
@@ -184,12 +184,12 @@ netlink_input_add_devices(struct netlink_input *input)
 static void
 netlink_input_remove_devices(struct netlink_input *input)
 {
-	struct evdev_device *device, *next;
-	struct netlink_seat *seat, *tmp;
+	struct evdev_device *device;
+	struct netlink_seat *seat;
 
-	list_for_each_safe(seat, tmp, &input->base.seat_list, base.link) {
+	list_for_each_safe(seat, &input->base.seat_list, base.link) {
 		libinput_seat_ref(&seat->base);
-		list_for_each_safe(device, next,
+		list_for_each_safe(device,
 				   &seat->base.devices_list, base.link) {
 			evdev_device_remove(device);
 		}
@@ -251,7 +251,7 @@ netlink_handler(void *data)
 		++sysname;
 	else
 		sysname = devname;
-	if (strncmp(sysname, "event", 5) != 0)
+	if (!strneq(sysname, "event", 5))
 		return;
 	devnode = devname - 5;
 	memcpy(devnode, "/dev/", 5);

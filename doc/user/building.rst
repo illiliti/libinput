@@ -190,7 +190,7 @@ libinput has a few build-time dependencies that must be installed prior to
 running meson.
 
 .. hint:: The build dependencies for some distributions can be found in the
-	`GitLab Continuous Integration file <https://gitlab.freedesktop.org/libinput/libinput/blob/master/.gitlab-ci.yml>`_.
+	`GitLab Continuous Integration file <https://gitlab.freedesktop.org/libinput/libinput/blob/main/.gitlab-ci.yml>`_.
 	Search for **FEDORA_RPMS** in the **variables:** definition
 	and check the list for an entry for your distribution.
 
@@ -283,6 +283,11 @@ Software that uses meson should use the ``dependency()`` function: ::
 
     pkgconfig = import('pkgconfig')
     dep_libinput = dependency('libinput')
+
+Software that uses CMake should use: ::
+
+    find_package(Libinput)
+    target_link_libraries(myprogram PRIVATE Libinput::Libinput)
 
 Otherwise, the most rudimentary way to compile and link a program against
 libinput is:

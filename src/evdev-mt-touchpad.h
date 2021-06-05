@@ -185,7 +185,6 @@ struct tp_touch {
 	bool has_ended;				/* TRACKING_ID == -1 */
 	bool dirty;
 	struct device_coords point;
-	uint64_t time;
 	uint64_t initial_time;
 	int pressure;
 	bool is_tool_palm; /* MT_TOOL_PALM */
@@ -743,5 +742,8 @@ tp_thumb_update_multifinger(struct tp_dispatch *tp);
 
 void
 tp_init_thumb(struct tp_dispatch *tp);
+
+struct tp_touch*
+tp_thumb_get_touch(struct tp_dispatch *tp);
 
 #endif

@@ -98,7 +98,9 @@ tp_filter_motion_unaccelerated(struct tp_dispatch *tp,
 }
 
 static inline void
-tp_calculate_motion_speed(struct tp_dispatch *tp, struct tp_touch *t)
+tp_calculate_motion_speed(struct tp_dispatch *tp,
+			  struct tp_touch *t,
+			  uint64_t time)
 {
 	const struct tp_history_point *last;
 	struct device_coords delta;
@@ -133,14 +135,14 @@ tp_calculate_motion_speed(struct tp_dispatch *tp, struct tp_touch *t)
 	mm = evdev_device_unit_delta_to_mm(tp->device, &delta);
 
 	distance = length_in_mm(mm);
-	speed = distance/(t->time - last->time); /* mm/us */
+	speed = distance/(time - last->time); /* mm/us */
 	speed *= 1000000; /* mm/s */
 
 	t->speed.last_speed = speed;
 }
 
 static inline void
-tp_motion_history_push(struct tp_touch *t)
+tp_motion_history_push(struct tp_touch *t, uint64_t time)
 {
 	int motion_index = (t->history.index + 1) % TOUCHPAD_HISTORY_LENGTH;
 
@@ -148,7 +150,7 @@ tp_motion_history_push(struct tp_touch *t)
 		t->history.count++;
 
 	t->history.samples[motion_index].point = t->point;
-	t->history.samples[motion_index].time = t->time;
+	t->history.samples[motion_index].time = time;
 	t->history.index = motion_index;
 }
 
@@ -342,7 +344,6 @@ tp_new_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->palm.state = PALM_NONE;
 	t->state = TOUCH_HOVERING;
 	t->pinned.is_pinned = false;
-	t->time = time;
 	t->speed.last_speed = 0;
 	t->speed.exceeded_count = 0;
 	t->hysteresis.x_motion_history = 0;
@@ -354,7 +355,6 @@ tp_begin_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 {
 	t->dirty = true;
 	t->state = TOUCH_BEGIN;
-	t->time = time;
 	t->initial_time = time;
 	t->was_down = true;
 	tp->nfingers_down++;
@@ -437,7 +437,6 @@ tp_end_touch(struct tp_dispatch *tp, struct tp_touch *t, uint64_t time)
 	t->palm.state = PALM_NONE;
 	t->state = TOUCH_END;
 	t->pinned.is_pinned = false;
-	t->time = time;
 	t->palm.time = 0;
 	t->speed.exceeded_count = 0;
 	tp->queued |= TOUCHPAD_EVENT_MOTION;
@@ -514,7 +513,6 @@ tp_process_absolute(struct tp_dispatch *tp,
 						  e->code,
 						  e->value);
 		t->point.x = rotated(tp, e->code, e->value);
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_MOTION;
 		break;
@@ -523,7 +521,6 @@ tp_process_absolute(struct tp_dispatch *tp,
 						  e->code,
 						  e->value);
 		t->point.y = rotated(tp, e->code, e->value);
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_MOTION;
 		break;
@@ -542,13 +539,11 @@ tp_process_absolute(struct tp_dispatch *tp,
 		break;
 	case ABS_MT_PRESSURE:
 		t->pressure = e->value;
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
 		break;
 	case ABS_MT_TOOL_TYPE:
 		t->is_tool_palm = e->value == MT_TOOL_PALM;
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
 		break;
@@ -578,7 +573,6 @@ tp_process_absolute_st(struct tp_dispatch *tp,
 						  e->code,
 						  e->value);
 		t->point.x = rotated(tp, e->code, e->value);
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_MOTION;
 		break;
@@ -587,13 +581,11 @@ tp_process_absolute_st(struct tp_dispatch *tp,
 						  e->code,
 						  e->value);
 		t->point.y = rotated(tp, e->code, e->value);
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_MOTION;
 		break;
 	case ABS_PRESSURE:
 		t->pressure = e->value;
-		t->time = time;
 		t->dirty = true;
 		tp->queued |= TOUCHPAD_EVENT_OTHERAXIS;
 		break;
@@ -1750,6 +1742,12 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 
 			speed_exceeded_count = max(speed_exceeded_count,
 						   t->speed.exceeded_count);
+
+			/* A touch that hasn't moved must be in the same
+			 * position, so let's add this to the motion
+			 * history.
+			 */
+			tp_motion_history_push(t, time);
 			continue;
 		}
 
@@ -1767,7 +1765,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		tp_palm_detect(tp, t, time);
 		tp_detect_wobbling(tp, t, time);
 		tp_motion_hysteresis(tp, t);
-		tp_motion_history_push(t);
+		tp_motion_history_push(t, time);
 
 		/* Touch speed handling: if we'are above the threshold,
 		 * count each event that we're over the threshold up to 10
@@ -1791,7 +1789,7 @@ tp_process_state(struct tp_dispatch *tp, uint64_t time)
 		speed_exceeded_count = max(speed_exceeded_count,
 					   t->speed.exceeded_count);
 
-		tp_calculate_motion_speed(tp, t);
+		tp_calculate_motion_speed(tp, t, time);
 
 		tp_unpin_finger(tp, t);
 
@@ -1861,7 +1859,7 @@ tp_post_process_state(struct tp_dispatch *tp, uint64_t time)
 static void
 tp_post_events(struct tp_dispatch *tp, uint64_t time)
 {
-	int filter_motion = 0;
+	bool ignore_motion = false;
 
 	/* Only post (top) button events while suspended */
 	if (tp->device->is_suspended) {
@@ -1869,10 +1867,10 @@ tp_post_events(struct tp_dispatch *tp, uint64_t time)
 		return;
 	}
 
-	filter_motion |= tp_tap_handle_state(tp, time);
-	filter_motion |= tp_post_button_events(tp, time);
+	ignore_motion |= tp_tap_handle_state(tp, time);
+	ignore_motion |= tp_post_button_events(tp, time);
 
-	if (filter_motion ||
+	if (ignore_motion ||
 	    tp->palm.trackpoint_active ||
 	    tp->dwt.keyboard_active) {
 		tp_edge_scroll_stop_events(tp, time);
@@ -2618,7 +2616,7 @@ tp_interface_device_removed(struct evdev_device *device,
 			    struct evdev_device *removed_device)
 {
 	struct tp_dispatch *tp = (struct tp_dispatch*)device->dispatch;
-	struct evdev_paired_keyboard *kbd, *tmp;
+	struct evdev_paired_keyboard *kbd;
 
 	if (removed_device == tp->buttons.trackpoint) {
 		/* Clear any pending releases for the trackpoint */
@@ -2632,7 +2630,7 @@ tp_interface_device_removed(struct evdev_device *device,
 		tp->buttons.trackpoint = NULL;
 	}
 
-	list_for_each_safe(kbd, tmp, &tp->dwt.paired_keyboard_list, link) {
+	list_for_each_safe(kbd, &tp->dwt.paired_keyboard_list, link) {
 		if (kbd->device == removed_device) {
 			evdev_paired_keyboard_destroy(kbd);
 			tp->dwt.keyboard_active = false;

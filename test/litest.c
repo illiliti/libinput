@@ -841,9 +841,9 @@ static void
 close_restricted(int fd, void *userdata)
 {
 	struct litest_context *ctx = userdata;
-	struct path *p, *tmp;
+	struct path *p;
 
-	list_for_each_safe(p, tmp, &ctx->paths, link) {
+	list_for_each_safe(p, &ctx->paths, link) {
 		if (p->fd != fd)
 			continue;
 		list_remove(&p->link);
@@ -862,9 +862,9 @@ struct libinput_interface interface = {
 static void
 litest_signal(int sig)
 {
-	struct created_file *f, *tmp;
+	struct created_file *f;
 
-	list_for_each_safe(f, tmp, &created_files_list, link) {
+	list_for_each_safe(f, &created_files_list, link) {
 		list_remove(&f->link);
 		unlink(f->path);
 		rmdir(f->path);
@@ -897,12 +897,12 @@ litest_setup_sighandler(int sig)
 static void
 litest_free_test_list(struct list *tests)
 {
-	struct suite *s, *snext;
+	struct suite *s;
 
-	list_for_each_safe(s, snext, tests, node) {
-		struct test *t, *tnext;
+	list_for_each_safe(s, tests, node) {
+		struct test *t;
 
-		list_for_each_safe(t, tnext, &s->tests, node) {
+		list_for_each_safe(t, &s->tests, node) {
 			free(t->name);
 			free(t->devname);
 			list_remove(&t->node);
@@ -1002,7 +1002,7 @@ litest_run_suite(struct list *tests, int which, int max, int error_fd)
 		struct list node;
 		char *name;
 	};
-	struct name *n, *tmp;
+	struct name *n;
 	struct list testnames;
 	const char *data_path;
 
@@ -1118,7 +1118,7 @@ litest_run_suite(struct list *tests, int which, int max, int error_fd)
 	}
 	srunner_free(sr);
 out:
-	list_for_each_safe(n, tmp, &testnames, node) {
+	list_for_each_safe(n, &testnames, node) {
 		free(n->name);
 		free(n);
 	}
@@ -1594,12 +1594,12 @@ litest_init_udev_rules(struct list *created_files)
 static inline void
 litest_remove_udev_rules(struct list *created_files_list)
 {
-	struct created_file *f, *tmp;
+	struct created_file *f;
 	bool reload_udev;
 
 	reload_udev = !list_empty(created_files_list);
 
-	list_for_each_safe(f, tmp, created_files_list, link) {
+	list_for_each_safe(f, created_files_list, link) {
 		list_remove(&f->link);
 		unlink(f->path);
 		rmdir(f->path);
@@ -1714,7 +1714,7 @@ litest_create_context(void)
 void
 litest_destroy_context(struct libinput *li)
 {
-	struct path *p, *tmp;
+	struct path *p;
 	struct litest_context *ctx;
 
 
@@ -1722,7 +1722,7 @@ litest_destroy_context(struct libinput *li)
 	litest_assert_ptr_notnull(ctx);
 	libinput_unref(li);
 
-	list_for_each_safe(p, tmp, &ctx->paths, link) {
+	list_for_each_safe(p, &ctx->paths, link) {
 		litest_abort_msg("Device paths should be removed by now");
 	}
 	free(ctx);
@@ -2576,21 +2576,20 @@ litest_touch_move_three_touches(struct litest_device *d,
 {
 	int sleep_ms = 10;
 
-	for (int i = 0; i < steps - 1; i++) {
-		litest_touch_move(d, 0, x0 + dx / steps * i,
-					y0 + dy / steps * i);
-		litest_touch_move(d, 1, x1 + dx / steps * i,
-					y1 + dy / steps * i);
-		litest_touch_move(d, 2, x2 + dx / steps * i,
-					y2 + dy / steps * i);
+	for (int i = 1; i <= steps; i++) {
+		double step_x = dx / steps * i;
+		double step_y = dy / steps * i;
+
+		litest_push_event_frame(d);
+		litest_touch_move(d, 0, x0 + step_x, y0 + step_y);
+		litest_touch_move(d, 1, x1 + step_x, y1 + step_y);
+		litest_touch_move(d, 2, x2 + step_x, y2 + step_y);
+		litest_pop_event_frame(d);
 
 		libinput_dispatch(d->libinput);
 		msleep(sleep_ms);
-		libinput_dispatch(d->libinput);
 	}
-	litest_touch_move(d, 0, x0 + dx, y0 + dy);
-	litest_touch_move(d, 1, x1 + dx, y1 + dy);
-	litest_touch_move(d, 2, x2 + dx, y2 + dy);
+	libinput_dispatch(d->libinput);
 }
 
 void
@@ -3114,7 +3113,7 @@ litest_event_type_str(enum libinput_event_type type)
 		str = "TOUCH FRAME";
 		break;
 	case LIBINPUT_EVENT_GESTURE_SWIPE_BEGIN:
-		str = "GESTURE SWIPE START";
+		str = "GESTURE SWIPE BEGIN";
 		break;
 	case LIBINPUT_EVENT_GESTURE_SWIPE_UPDATE:
 		str = "GESTURE SWIPE UPDATE";
@@ -3123,7 +3122,7 @@ litest_event_type_str(enum libinput_event_type type)
 		str = "GESTURE SWIPE END";
 		break;
 	case LIBINPUT_EVENT_GESTURE_PINCH_BEGIN:
-		str = "GESTURE PINCH START";
+		str = "GESTURE PINCH BEGIN";
 		break;
 	case LIBINPUT_EVENT_GESTURE_PINCH_UPDATE:
 		str = "GESTURE PINCH UPDATE";

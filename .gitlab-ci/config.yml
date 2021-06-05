@@ -3,14 +3,14 @@
 #
 
 # We're happy to rebuild all containers when one changes.
-.default_tag: &default_tag '2021-01-04.1'
+.default_tag: &default_tag '2021-05-12.0'
 
 distributions:
   - name: fedora
     tag: *default_tag
     versions:
-      - '32'
       - '33'
+      - '34' # last is picked for qemu
     want_qemu: true
     use_for_custom_build_tests: true
     packages:
@@ -63,8 +63,8 @@ distributions:
   - name: ubuntu
     tag: *default_tag
     versions:
-      - '20.04'
       - '20.10'
+      - '21.04'
     packages:
       - git
       - gcc

@@ -152,13 +152,13 @@ device_added(struct udev_device *udev_device,
 static void
 device_removed(struct udev_device *udev_device, struct udev_input *input)
 {
-	struct evdev_device *device, *next;
+	struct evdev_device *device;
 	struct udev_seat *seat;
 	const char *syspath;
 
 	syspath = udev_device_get_syspath(udev_device);
 	list_for_each(seat, &input->base.seat_list, base.link) {
-		list_for_each_safe(device, next,
+		list_for_each_safe(device,
 				   &seat->base.devices_list, base.link) {
 			if (streq(syspath,
 				  udev_device_get_syspath(device->udev_device))) {
@@ -187,7 +187,7 @@ udev_input_add_devices(struct udev_input *input, struct udev *udev)
 			continue;
 
 		sysname = udev_device_get_sysname(device);
-		if (strncmp("event", sysname, 5) != 0) {
+		if (!strneq("event", sysname, 5)) {
 			udev_device_unref(device);
 			continue;
 		}
@@ -231,7 +231,7 @@ evdev_udev_handler(void *data)
 	if (!action)
 		goto out;
 
-	if (strncmp("event", udev_device_get_sysname(udev_device), 5) != 0)
+	if (!strneq("event", udev_device_get_sysname(udev_device), 5))
 		goto out;
 
 	if (streq(action, "add"))
@@ -246,12 +246,12 @@ out:
 static void
 udev_input_remove_devices(struct udev_input *input)
 {
-	struct evdev_device *device, *next;
-	struct udev_seat *seat, *tmp;
+	struct evdev_device *device;
+	struct udev_seat *seat;
 
-	list_for_each_safe(seat, tmp, &input->base.seat_list, base.link) {
+	list_for_each_safe(seat, &input->base.seat_list, base.link) {
 		libinput_seat_ref(&seat->base);
-		list_for_each_safe(device, next,
+		list_for_each_safe(device,
 				   &seat->base.devices_list, base.link) {
 			evdev_device_remove(device);
 		}
