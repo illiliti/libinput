@@ -1623,7 +1623,9 @@ evdev_device_get_udev_tags(struct evdev_device *device,
 		return 0;
 	if (major(st.st_rdev) == INPUT_MAJOR)
 		tags |= EVDEV_UDEV_TAG_INPUT;
-	if (libevdev_has_event_code(evdev, EV_KEY, KEY_ENTER))
+	if (libevdev_has_event_code(evdev, EV_KEY, KEY_ENTER) ||
+	    libevdev_has_event_code(evdev, EV_KEY, KEY_VOLUMEUP) ||
+	    libevdev_has_event_code(evdev, EV_KEY, KEY_POWER))
 		tags |= EVDEV_UDEV_TAG_KEYBOARD;
 	if (libevdev_has_event_code(evdev, EV_REL, REL_X) &&
 	    libevdev_has_event_code(evdev, EV_REL, REL_Y) &&
