@@ -167,6 +167,7 @@ struct evdev_device {
 	struct evdev_dispatch *dispatch;
 	struct libevdev *evdev;
 	struct udev_device *udev_device;
+	struct demi_device demi_device;
 	char *output_name;
 	const char *devname;
 	bool was_removed;
@@ -375,7 +376,8 @@ evdev_verify_dispatch_type(struct evdev_dispatch *dispatch,
 
 struct evdev_device *
 evdev_device_create(struct libinput_seat *seat,
-		    struct udev_device *device);
+		    struct udev_device *udev_device,
+		    struct demi_device *demi_device);
 
 static inline struct libinput *
 evdev_libinput_context(const struct evdev_device *device)
@@ -394,7 +396,7 @@ evdev_device_has_model_quirk(struct evdev_device *device,
 	assert(quirk_get_name(model_quirk) != NULL);
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	quirks_get_bool(q, model_quirk, &result);
 	quirks_unref(q);
 

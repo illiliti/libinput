@@ -24,12 +24,14 @@
 
 #include "config.h"
 
+#include "udev-seat.h"
+#if HAVE_UDEV
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "evdev.h"
-#include "udev-seat.h"
 
 static const char default_seat[] = "seat0";
 static const char default_seat_name[] = "default";
@@ -119,7 +121,7 @@ device_added(struct udev_device *udev_device,
 			return -1;
 	}
 
-	device = evdev_device_create(&seat->base, udev_device);
+	device = evdev_device_create(&seat->base, udev_device, NULL);
 	libinput_seat_unref(&seat->base);
 
 	if (device == EVDEV_UNHANDLED_DEVICE) {
@@ -455,3 +457,22 @@ libinput_udev_assign_seat(struct libinput *libinput,
 
 	return 0;
 }
+
+#else
+
+LIBINPUT_EXPORT struct libinput *
+libinput_udev_create_context(const struct libinput_interface *interface,
+			     void *user_data,
+			     struct udev *udev)
+{
+	return NULL;
+}
+
+LIBINPUT_EXPORT int
+libinput_udev_assign_seat(struct libinput *libinput,
+			  const char *seat_id)
+{
+	return -1;
+}
+
+#endif

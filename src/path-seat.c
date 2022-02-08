@@ -23,21 +23,24 @@
 
 #include "config.h"
 
+#include "libinput-private.h"
+
 #include <string.h>
 #include <sys/stat.h>
-#include <libudev.h>
 
 #include "evdev.h"
 
 struct path_input {
 	struct libinput base;
 	struct udev *udev;
+	struct demi demi;
 	struct list path_list;
 };
 
 struct path_device {
 	struct list link;
 	struct udev_device *udev_device;
+	struct demi_device demi_device;
 };
 
 struct path_seat {
@@ -120,7 +123,7 @@ path_seat_get_named(struct path_input *input,
 
 static struct path_seat *
 path_seat_get_for_device(struct path_input *input,
-			 struct udev_device *udev_device,
+			 struct path_device *dev,
 			 const char *seat_logical_name_override)
 {
 	struct path_seat *seat = NULL;
@@ -129,16 +132,34 @@ path_seat_get_for_device(struct path_input *input,
 
 	const char *devnode, *sysname;
 
-	devnode = udev_device_get_devnode(udev_device);
-	sysname = udev_device_get_sysname(udev_device);
+#if HAVE_UDEV
+	devnode = udev_device_get_devnode(dev->udev_device);
+	sysname = udev_device_get_sysname(dev->udev_device);
+#else
+	if (demi_device_get_devnode(&dev->demi_device, &devnode) == -1)
+		return NULL;
 
-	seat_prop = udev_device_get_property_value(udev_device, "ID_SEAT");
+	if (demi_device_get_devname(&dev->demi_device, &sysname) == -1)
+		return NULL;
+#endif
+
+
+#if HAVE_UDEV
+	seat_prop = udev_device_get_property_value(dev->udev_device, "ID_SEAT");
+#else
+	seat_prop = NULL;
+	demi_device_get_seat(&dev->demi_device, &seat_prop);
+#endif
 	seat_name = safe_strdup(seat_prop ? seat_prop : default_seat);
 
 	if (seat_logical_name_override) {
 		seat_logical_name = safe_strdup(seat_logical_name_override);
 	} else {
-		seat_prop = udev_device_get_property_value(udev_device, "WL_SEAT");
+#if HAVE_UDEV
+		seat_prop = udev_device_get_property_value(dev->udev_device, "WL_SEAT");
+#else
+		seat_prop = NULL;
+#endif
 		seat_logical_name = safe_strdup(seat_prop ? seat_prop : default_seat_name);
 	}
 
@@ -172,7 +193,7 @@ out:
 
 static struct libinput_device *
 path_device_enable(struct path_input *input,
-		   struct udev_device *udev_device,
+		   struct path_device *dev,
 		   const char *seat_logical_name_override)
 {
 	struct path_seat *seat;
@@ -180,14 +201,22 @@ path_device_enable(struct path_input *input,
 	const char *output_name;
 	const char *devnode, *sysname;
 
-	devnode = udev_device_get_devnode(udev_device);
-	sysname = udev_device_get_sysname(udev_device);
+#if HAVE_UDEV
+	devnode = udev_device_get_devnode(dev->udev_device);
+	sysname = udev_device_get_sysname(dev->udev_device);
+#else
+	if (demi_device_get_devnode(&dev->demi_device, &devnode) == -1)
+		return NULL;
 
-	seat = path_seat_get_for_device(input, udev_device, seat_logical_name_override);
+	if (demi_device_get_devname(&dev->demi_device, &sysname) == -1)
+		return NULL;
+#endif
+
+	seat = path_seat_get_for_device(input, dev, seat_logical_name_override);
 	if (!seat)
 		goto out;
 
-	device = evdev_device_create(&seat->base, udev_device);
+	device = evdev_device_create(&seat->base, dev->udev_device, &dev->demi_device);
 	libinput_seat_unref(&seat->base);
 
 	if (device == EVDEV_UNHANDLED_DEVICE) {
@@ -206,8 +235,12 @@ path_device_enable(struct path_input *input,
 	}
 
 	evdev_read_calibration_prop(device);
-	output_name = udev_device_get_property_value(udev_device, "WL_OUTPUT");
+#if HAVE_UDEV
+	output_name = udev_device_get_property_value(dev->udev_device, "WL_OUTPUT");
 	device->output_name = safe_strdup(output_name);
+#else
+	device->output_name = NULL;
+#endif
 
 out:
 	return device ? &device->base : NULL;
@@ -220,7 +253,7 @@ path_input_enable(struct libinput *libinput)
 	struct path_device *dev;
 
 	list_for_each(dev, &input->path_list, link) {
-		if (path_device_enable(input, dev->udev_device, NULL) == NULL) {
+		if (path_device_enable(input, dev, NULL) == NULL) {
 			path_input_disable(libinput);
 			return -1;
 		}
@@ -233,7 +266,11 @@ static void
 path_device_destroy(struct path_device *dev)
 {
 	list_remove(&dev->link);
+#if HAVE_UDEV
 	udev_device_unref(dev->udev_device);
+#else
+	// demi_device_finish(&dev->demi_device); // TODO demi
+#endif
 	free(dev);
 }
 
@@ -243,7 +280,11 @@ path_input_destroy(struct libinput *input)
 	struct path_input *path_input = (struct path_input*)input;
 	struct path_device *dev;
 
+#if HAVE_UDEV
 	udev_unref(path_input->udev);
+#else
+	demi_finish(&path_input->demi);
+#endif
 
 	list_for_each_safe(dev, &path_input->path_list, link)
 		path_device_destroy(dev);
@@ -253,6 +294,7 @@ path_input_destroy(struct libinput *input)
 static struct libinput_device *
 path_create_device(struct libinput *libinput,
 		   struct udev_device *udev_device,
+		   struct demi_device *demi_device,
 		   const char *seat_name)
 {
 	struct path_input *input = (struct path_input*)libinput;
@@ -260,11 +302,15 @@ path_create_device(struct libinput *libinput,
 	struct libinput_device *device;
 
 	dev = zalloc(sizeof *dev);
+#if HAVE_UDEV
 	dev->udev_device = udev_device_ref(udev_device);
+#else
+	dev->demi_device = *demi_device;
+#endif
 
 	list_insert(&input->path_list, &dev->link);
 
-	device = path_device_enable(input, udev_device, seat_name);
+	device = path_device_enable(input, dev, seat_name);
 
 	if (!device)
 		path_device_destroy(dev);
@@ -279,15 +325,22 @@ path_device_change_seat(struct libinput_device *device,
 	struct libinput *libinput = device->seat->libinput;
 	struct evdev_device *evdev = evdev_device(device);
 	struct udev_device *udev_device = NULL;
+	struct demi_device *demi_device = NULL;
 	int rc = -1;
 
+#if HAVE_UDEV
 	udev_device = evdev->udev_device;
 	udev_device_ref(udev_device);
+#else
+	demi_device = &evdev->demi_device;
+#endif
 	libinput_path_remove_device(device);
 
-	if (path_create_device(libinput, udev_device, seat_name) != NULL)
+	if (path_create_device(libinput, udev_device, demi_device, seat_name) != NULL)
 		rc = 0;
+#if HAVE_UDEV
 	udev_device_unref(udev_device);
+#endif
 	return rc;
 }
 
@@ -308,14 +361,30 @@ libinput_path_create_context(const struct libinput_interface *interface,
 	if (!interface)
 		return NULL;
 
+#if HAVE_UDEV
 	udev = udev_new();
 	if (!udev)
 		return NULL;
+#else
+	udev = NULL;
+#endif
 
 	input = zalloc(sizeof *input);
+
+#if !HAVE_UDEV
+	if (demi_init(&input->demi) == -1) {
+		free(input);
+		return NULL;
+	}
+#endif
+
 	if (libinput_init(&input->base, interface,
 			  &interface_backend, user_data) != 0) {
+#if HAVE_UDEV
 		udev_unref(udev);
+#else
+		demi_finish(&input->demi);
+#endif
 		free(input);
 		return NULL;
 	}
@@ -326,6 +395,7 @@ libinput_path_create_context(const struct libinput_interface *interface,
 	return &input->base;
 }
 
+#if HAVE_UDEV
 static inline struct udev_device *
 udev_device_from_devnode(struct libinput *libinput,
 			 struct udev *udev,
@@ -355,6 +425,7 @@ udev_device_from_devnode(struct libinput *libinput,
 
 	return dev;
 }
+#endif
 
 LIBINPUT_EXPORT struct libinput_device *
 libinput_path_add_device(struct libinput *libinput,
@@ -377,6 +448,8 @@ libinput_path_add_device(struct libinput *libinput,
 		return NULL;
 	}
 
+	struct demi_device demi_device;
+#if HAVE_UDEV
 	udev_device = udev_device_from_devnode(libinput, udev, path);
 	if (!udev_device) {
 		log_bug_client(libinput, "Invalid path %s\n", path);
@@ -387,6 +460,12 @@ libinput_path_add_device(struct libinput *libinput,
 		udev_device_unref(udev_device);
 		return NULL;
 	}
+#else
+	if (demi_device_init_devnode(&demi_device, &input->demi, path) == -1) {
+		log_bug_client(libinput, "Invalid path %s\n", path);
+		return NULL;
+	}
+#endif
 
 	/* We cannot do this during path_create_context because the log
 	 * handler isn't set up there but we really want to log to the right
@@ -395,8 +474,12 @@ libinput_path_add_device(struct libinput *libinput,
 	 */
 	libinput_init_quirks(libinput);
 
-	device = path_create_device(libinput, udev_device, NULL);
+	device = path_create_device(libinput, udev_device, &demi_device, NULL);
+#if HAVE_UDEV
 	udev_device_unref(udev_device);
+#else
+	// demi_device_finish(&demi_device); // TODO demi
+#endif
 	return device;
 }
 
@@ -414,8 +497,21 @@ libinput_path_remove_device(struct libinput_device *device)
 		return;
 	}
 
+#if !HAVE_UDEV
+	const char *devnode;
+	if (demi_device_get_devnode(&evdev->demi_device, &devnode) == -1)
+		return;
+#endif
+
 	list_for_each_safe(dev, &input->path_list, link) {
+#if HAVE_UDEV
 		if (dev->udev_device == evdev->udev_device) {
+#else
+		const char *old_devnode;
+		if (demi_device_get_devnode(&dev->demi_device, &old_devnode) == -1)
+			continue;
+		if (streq(devnode, old_devnode)) {
+#endif
 			path_device_destroy(dev);
 			break;
 		}

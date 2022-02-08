@@ -272,7 +272,7 @@ tools_parse_option(int option,
 }
 
 static int
-open_restricted(const char *path, int flags, void *user_data)
+tools_open_restricted(const char *path, int flags, void *user_data)
 {
 	bool *grab = user_data;
 	int fd = open(path, flags);
@@ -288,14 +288,14 @@ open_restricted(const char *path, int flags, void *user_data)
 }
 
 static void
-close_restricted(int fd, void *user_data)
+tools_close_restricted(int fd, void *user_data)
 {
 	close(fd);
 }
 
 static const struct libinput_interface interface = {
-	.open_restricted = open_restricted,
-	.close_restricted = close_restricted,
+	.open_restricted = tools_open_restricted,
+	.close_restricted = tools_close_restricted,
 };
 
 static struct libinput *
@@ -667,7 +667,7 @@ tools_list_device_quirks(struct quirks_context *ctx,
 	struct quirks *quirks;
 	enum quirk q;
 
-	quirks = quirks_fetch_for_device(ctx, device);
+	quirks = quirks_fetch_for_device(ctx, device, NULL);
 	if (!quirks)
 		return;
 

@@ -31,7 +31,6 @@
 #undef NDEBUG /* You don't get to disable asserts here */
 #include <assert.h>
 #include <stdlib.h>
-#include <libudev.h>
 #include <dirent.h>
 #include <fnmatch.h>
 #include <libgen.h>
@@ -43,6 +42,7 @@
 #include "libinput-util.h"
 
 #include "quirks.h"
+#include "evdev.h"
 
 /* Custom logging so we can have detailed output for the tool but minimal
  * logging for libinput itself. */
@@ -363,31 +363,19 @@ property_cleanup(struct property *p)
 static inline char *
 init_dmi_linux(void)
 {
-	struct udev *udev;
-	struct udev_device *udev_device;
-	const char *modalias = NULL;
+	char modalias[1024];
 	char *copy = NULL;
-	const char *syspath = "/sys/devices/virtual/dmi/id";
+	const char *syspath = "/sys/devices/virtual/dmi/id/modalias";
+	FILE *fp;
 
-	udev = udev_new();
-	if (!udev)
+	fp = fopen(syspath, "r");
+	if (!fp)
 		return NULL;
 
-	udev_device = udev_device_new_from_syspath(udev, syspath);
-	if (udev_device)
-		modalias = udev_device_get_property_value(udev_device,
-							  "MODALIAS");
+	if (fgets(modalias, sizeof(modalias), fp))
+		copy = safe_strdup(modalias);
 
-	/* Not sure whether this could ever really fail, if so we should
-	 * open the sysfs file directly. But then udev wouldn't have failed,
-	 * so... */
-	if (!modalias)
-		modalias = "dmi:*";
-
-	copy = safe_strdup(modalias);
-
-	udev_device_unref(udev_device);
-	udev_unref(udev);
+	fclose(fp);
 
 	return copy;
 }
@@ -1239,20 +1227,23 @@ udev_prop(struct udev_device *device, const char *prop)
 {
 	struct udev_device *d = device;
 	const char *value = NULL;
+#if HAVE_UDEV
 
 	do {
 		value = udev_device_get_property_value(d, prop);
 		d = udev_device_get_parent(d);
 	} while (value == NULL && d != NULL);
+#endif
 
 	return value;
 }
 
 static inline void
 match_fill_name(struct match *m,
-		struct udev_device *device)
+		struct evdev_device *device)
 {
-	const char *str = udev_prop(device, "NAME");
+#if HAVE_UDEV
+	const char *str = udev_prop(device->udev_device, "NAME");
 	size_t slen;
 
 	if (!str)
@@ -1267,18 +1258,24 @@ match_fill_name(struct match *m,
 	if (slen > 1 &&
 	    m->name[slen - 1] == '"')
 		m->name[slen - 1] = '\0';
-
+#else
+	char str[256];
+	if (ioctl(device->fd, EVIOCGNAME(sizeof(str)), str) == -1)
+		return;
+	m->name = safe_strdup(str);
+#endif
 	m->bits |= M_NAME;
 }
 
 static inline void
 match_fill_bus_vid_pid(struct match *m,
-		       struct udev_device *device)
+		       struct evdev_device *device)
 {
 	const char *str;
 	unsigned int product, vendor, bus, version;
 
-	str = udev_prop(device, "PRODUCT");
+#if HAVE_UDEV
+	str = udev_prop(device->udev_device, "PRODUCT");
 	if (!str)
 		return;
 
@@ -1287,6 +1284,19 @@ match_fill_bus_vid_pid(struct match *m,
 	if (sscanf(str, "%x/%x/%x/%x", &bus, &vendor, &product, &version) != 4)
 		return;
 
+	m->product = product;
+	m->vendor = vendor;
+	m->version = version;
+#else
+	struct input_id id;
+	if (ioctl(device->fd, EVIOCGID, &id) == -1)
+		return;
+
+	bus = id.bustype;
+	product = id.product;
+	vendor = id.vendor;
+	version = id.version;
+#endif
 	m->product = product;
 	m->vendor = vendor;
 	m->version = version;
@@ -1323,8 +1333,9 @@ match_fill_bus_vid_pid(struct match *m,
 
 static inline void
 match_fill_udev_type(struct match *m,
-		     struct udev_device *device)
+		     struct evdev_device *device)
 {
+#if HAVE_UDEV
 	struct ut_map {
 		const char *prop;
 		enum udev_type flag;
@@ -1341,9 +1352,33 @@ match_fill_udev_type(struct match *m,
 	struct ut_map *map;
 
 	ARRAY_FOR_EACH(mappings, map) {
-		if (udev_prop(device, map->prop))
+		if (udev_prop(device->udev_device, map->prop))
 			m->udev_type |= map->flag;
 	}
+#else
+	struct ut_map {
+		enum demi_type prop;
+		enum udev_type flag;
+	} mappings[] = {
+		{ DEMI_TYPE_MOUSE, UDEV_MOUSE },
+		{ DEMI_TYPE_POINTING_STICK, UDEV_POINTINGSTICK },
+		{ DEMI_TYPE_TOUCHPAD, UDEV_TOUCHPAD },
+		{ DEMI_TYPE_TABLET, UDEV_TABLET },
+		// { "ID_TABLET_PAD", UDEV_TABLET_PAD }, // TODO demi
+		{ DEMI_TYPE_JOYSTICK, UDEV_JOYSTICK },
+		{ DEMI_TYPE_KEYBOARD, UDEV_KEYBOARD },
+	};
+	struct ut_map *map;
+	uint32_t type;
+
+	if (demi_device_get_type(&device->demi_device, &type) == -1)
+		return;
+
+	ARRAY_FOR_EACH(mappings, map) {
+		if (type & map->prop)
+			m->udev_type |= map->flag;
+	}
+#endif
 	m->bits |= M_UDEV_TYPE;
 }
 
@@ -1362,7 +1397,7 @@ match_fill_dmi_dt(struct match *m, char *dmi, char *dt)
 }
 
 static struct match *
-match_new(struct udev_device *device,
+match_new(struct evdev_device *device,
 	  char *dmi, char *dt)
 {
 	struct match *m = zalloc(sizeof *m);
@@ -1489,7 +1524,8 @@ quirk_match_section(struct quirks_context *ctx,
 
 struct quirks *
 quirks_fetch_for_device(struct quirks_context *ctx,
-			struct udev_device *udev_device)
+			struct udev_device *device,
+			struct evdev_device *evdev_device)
 {
 	struct quirks *q = NULL;
 	struct section *s;
@@ -1498,15 +1534,20 @@ quirks_fetch_for_device(struct quirks_context *ctx,
 	if (!ctx)
 		return NULL;
 
-	qlog_debug(ctx, "%s: fetching quirks\n",
-		   udev_device_get_devnode(udev_device));
+	const char *devnode = NULL;
+#if HAVE_UDEV
+	devnode = udev_device_get_devnode(device);
+#else
+	demi_device_get_devnode(&evdev_device->demi_device, &devnode);
+#endif
+	qlog_debug(ctx, "%s: fetching quirks\n", devnode);
 
 	q = quirks_new();
 
-	m = match_new(udev_device, ctx->dmi, ctx->dt);
+	m = match_new(evdev_device, ctx->dmi, ctx->dt);
 
 	list_for_each(s, &ctx->sections, link) {
-		quirk_match_section(ctx, q, s, m, udev_device);
+		quirk_match_section(ctx, q, s, m, device);
 	}
 
 	match_free(m);

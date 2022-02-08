@@ -418,7 +418,7 @@ tp_init_thumb(struct tp_dispatch *tp)
 	tp->thumb.lower_thumb_line = edges.y;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 
 	if (libevdev_has_event_code(device->evdev, EV_ABS, ABS_MT_PRESSURE)) {
 		if (quirks_get_uint32(q,

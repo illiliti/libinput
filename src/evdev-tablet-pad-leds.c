@@ -186,8 +186,12 @@ pad_group_new_basic(struct pad_dispatch *pad,
 static inline bool
 is_litest_device(struct evdev_device *device)
 {
+#if HAVE_UDEV
 	return !!udev_device_get_property_value(device->udev_device,
 						"LIBINPUT_TEST_DEVICE");
+#else
+	return false;
+#endif
 }
 
 static inline struct pad_led_group *
@@ -239,6 +243,7 @@ pad_led_get_sysfs_base_path(struct evdev_device *device,
 			    char *path_out,
 			    size_t path_out_sz)
 {
+#if HAVE_UDEV
 	struct udev_device *parent, *udev_device;
 	const char *test_path;
 	int rc;
@@ -267,6 +272,9 @@ pad_led_get_sysfs_base_path(struct evdev_device *device,
 		      udev_device_get_sysname(parent));
 
 	return rc != -1;
+#else
+	return false;
+#endif
 }
 
 #if HAVE_LIBWACOM
@@ -497,8 +505,16 @@ pad_init_leds_from_libwacom(struct pad_dispatch *pad,
 	if (!db)
 		goto out;
 
+	const char *devnode;
+#if HAVE_UDEV
+	devnode = udev_device_get_devnode(device->udev_device);
+#else
+	if (demi_device_get_devnode(&device->demi_device, &devnode) == -1)
+		goto out;
+#endif
+
 	wacom = libwacom_new_from_path(db,
-				       udev_device_get_devnode(device->udev_device),
+				       devnode,
 				       WFALLBACK_NONE,
 				       NULL);
 	if (!wacom)

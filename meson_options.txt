@@ -1,3 +1,8 @@
+option('enum-backend',
+       type: 'combo',
+       choices: ['libudev', 'demi'],
+       value: 'libudev',
+       description: 'input device enumeration backend [default=libudev]')
 option('udev-dir',
        type: 'string',
        value: '',

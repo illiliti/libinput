@@ -24,11 +24,10 @@
 #pragma once
 
 #include "config.h"
+#include "libinput-private.h"
 
 #include <stdbool.h>
 #include <stdint.h>
-
-#include <libudev.h>
 
 #include "libinput.h"
 
@@ -188,9 +187,11 @@ quirks_context_ref(struct quirks_context *ctx);
  *
  * @return A new quirks struct, use quirks_unref() to release
  */
+struct evdev_device;
 struct quirks *
 quirks_fetch_for_device(struct quirks_context *ctx,
-			struct udev_device *device);
+			struct udev_device *udev_device,
+			struct evdev_device *evdev_device);
 
 /**
  * Reduce the refcount by one. When the refcount reaches zero, the

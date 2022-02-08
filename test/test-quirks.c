@@ -936,7 +936,7 @@ test_attr_parse(struct litest_device *dev,
 				    QLOG_CUSTOM_LOG_PRIORITIES);
 	if (ctx != NULL) {
 		struct quirks *q;
-		q = quirks_fetch_for_device(ctx, ud);
+		q = quirks_fetch_for_device(ctx, ud, NULL);
 		ck_assert_notnull(q);
 		ck_assert(func(q, which, data));
 		ck_assert(quirks_has_quirk(q, which));
@@ -1302,7 +1302,7 @@ START_TEST(quirks_model_one)
 				    QLOG_CUSTOM_LOG_PRIORITIES);
 	ck_assert_notnull(ctx);
 
-	q = quirks_fetch_for_device(ctx, ud);
+	q = quirks_fetch_for_device(ctx, ud, NULL);
 	ck_assert_notnull(q);
 
 	ck_assert(quirks_get_bool(q, QUIRK_MODEL_APPLE_TOUCHPAD, &isset));
@@ -1335,7 +1335,7 @@ START_TEST(quirks_model_zero)
 				    QLOG_CUSTOM_LOG_PRIORITIES);
 	ck_assert_notnull(ctx);
 
-	q = quirks_fetch_for_device(ctx, ud);
+	q = quirks_fetch_for_device(ctx, ud, NULL);
 	ck_assert_notnull(q);
 
 	ck_assert(quirks_get_bool(q, QUIRK_MODEL_APPLE_TOUCHPAD, &isset));
@@ -1382,7 +1382,7 @@ START_TEST(quirks_model_override)
 				    QLOG_CUSTOM_LOG_PRIORITIES);
 	ck_assert_notnull(ctx);
 
-	q = quirks_fetch_for_device(ctx, ud);
+	q = quirks_fetch_for_device(ctx, ud, NULL);
 	ck_assert_notnull(q);
 
 	ck_assert(quirks_get_bool(q, QUIRK_MODEL_APPLE_TOUCHPAD, &isset));
@@ -1476,7 +1476,7 @@ END_TEST
 
 START_TEST(quirks_call_NULL)
 {
-	ck_assert(!quirks_fetch_for_device(NULL, NULL));
+	ck_assert(!quirks_fetch_for_device(NULL, NULL, NULL));
 
 	ck_assert(!quirks_get_uint32(NULL, 0, NULL));
 	ck_assert(!quirks_get_int32(NULL, 0, NULL));

@@ -32,7 +32,10 @@ extern "C" {
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdarg.h>
-#include <libudev.h>
+
+struct demi;
+struct udev;
+struct udev_device;
 
 #define LIBINPUT_ATTRIBUTE_PRINTF(_format, _args) \
 	__attribute__ ((format (printf, _format, _args)))
@@ -3631,6 +3634,15 @@ libinput_path_add_device(struct libinput *libinput,
  */
 void
 libinput_path_remove_device(struct libinput_device *device);
+
+// TODO demi
+struct libinput *
+libinput_demi_create_context(const struct libinput_interface *interface,
+				void *user_data, struct demi *demi);
+// TODO demi
+int
+libinput_demi_assign_seat(struct libinput *libinput,
+			     const char *seat_id);
 
 /**
  * @ingroup base

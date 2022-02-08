@@ -2709,8 +2709,12 @@ evdev_tag_touchpad(struct evdev_device *device,
 	int bustype, vendor;
 	const char *prop;
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(udev_device,
 					      "ID_INPUT_TOUCHPAD_INTEGRATION");
+#else
+	prop = NULL;
+#endif
 	if (prop) {
 		if (streq(prop, "internal")) {
 			evdev_tag_touchpad_internal(device);
@@ -3210,7 +3214,7 @@ tp_is_tpkb_combo_below(struct evdev_device *device)
 	int rc = false;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q)
 		return false;
 
@@ -3284,7 +3288,7 @@ tp_init_palmdetect_edge(struct tp_dispatch *tp,
 
 static int
 tp_read_palm_pressure_prop(struct tp_dispatch *tp,
-			   const struct evdev_device *device)
+			   struct evdev_device *device)
 {
 	const int default_palm_threshold = 130;
 	uint32_t threshold = default_palm_threshold;
@@ -3292,7 +3296,7 @@ tp_read_palm_pressure_prop(struct tp_dispatch *tp,
 	struct quirks *q;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q)
 		return threshold;
 
@@ -3328,7 +3332,7 @@ tp_init_palmdetect_size(struct tp_dispatch *tp,
 	uint32_t threshold;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q)
 		return;
 
@@ -3522,7 +3526,7 @@ tp_init_pressure(struct tp_dispatch *tp,
 	assert(abs);
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (q && quirks_get_range(q, QUIRK_ATTR_PRESSURE_RANGE, &r)) {
 		hi = r.upper;
 		lo = r.lower;
@@ -3578,7 +3582,7 @@ tp_init_touch_size(struct tp_dispatch *tp,
 	}
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (q && quirks_get_range(q, QUIRK_ATTR_TOUCH_SIZE_RANGE, &r)) {
 		hi = r.upper;
 		lo = r.lower;

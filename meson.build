@@ -140,7 +140,6 @@ endif
 
 # Dependencies
 pkgconfig = import('pkgconfig')
-dep_udev = dependency('libudev')
 dep_mtdev = dependency('mtdev', version : '>= 1.1.0')
 dep_libevdev = dependency('libevdev')
 config_h.set10('HAVE_LIBEVDEV_DISABLE_PROPERTY',
@@ -165,6 +164,11 @@ endif
 
 ############ udev bits ############
 
+enum_backend = get_option('enum-backend')
+dep_udev = dependency(enum_backend)
+have_udev = enum_backend == 'libudev'
+config_h.set10('HAVE_UDEV', have_udev)
+if have_udev
 executable('libinput-device-group',
 	   'udev/libinput-device-group.c',
 	   dependencies : [dep_udev, dep_libwacom],
@@ -205,6 +209,7 @@ litest_groups_rules_file = configure_file(input : 'udev/80-libinput-device-group
 litest_fuzz_override_file = configure_file(input : 'udev/90-libinput-fuzz-override.rules.in',
 					   output : '90-libinput-fuzz-override-litest.rules',
 					   configuration : litest_udev_rules_config)
+endif
 
 ############ Check for leftover udev rules ########
 
@@ -310,7 +315,7 @@ src_libfilter = [
 		'src/filter-private.h'
 ]
 libfilter = static_library('filter', src_libfilter,
-			   dependencies : [dep_udev, dep_libwacom],
+			   dependencies : [dep_udev, dep_libwacom, dep_libevdev],
 			   include_directories : includes_include)
 dep_libfilter = declare_dependency(link_with : libfilter)
 
@@ -332,7 +337,7 @@ src_libquirks = [
 	'src/builddir.h',
 ]
 
-deps_libquirks = [dep_udev, dep_libwacom, dep_libinput_util]
+deps_libquirks = [dep_udev, dep_libwacom, dep_libinput_util, dep_libevdev]
 libquirks = static_library('quirks', src_libquirks,
 			   dependencies : deps_libquirks,
 			   include_directories : includes_include)
@@ -372,6 +377,8 @@ src_libinput = src_libfilter + [
 	'src/path-seat.c',
 	'src/udev-seat.c',
 	'src/udev-seat.h',
+	'src/demi-seat.c',
+	'src/demi-seat.h',
 	'src/timer.c',
 	'src/timer.h',
 	'include/linux/input.h'
@@ -442,6 +449,7 @@ endif
 subdir('completion/zsh')
 
 ############ tools ############
+if have_udev
 libinput_tool_path = dir_libexec
 config_h.set_quoted('LIBINPUT_TOOL_PATH', libinput_tool_path)
 tools_shared_sources = [ 'tools/shared.c',
@@ -659,6 +667,7 @@ test('tools-builddir-lookup-installed',
      env : ['LD_LIBRARY_PATH=@0@'.format(meson.current_build_dir())],
      suite : ['all'],
      workdir : '/tmp')
+endif
 
 ############ tests ############
 

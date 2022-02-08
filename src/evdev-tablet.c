@@ -1089,7 +1089,7 @@ tool_set_pressure_thresholds(struct tablet_dispatch *tablet,
 		goto out;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 
 	tool->pressure.offset = pressure->minimum;
 
@@ -2385,7 +2385,12 @@ tablet_is_aes(struct evdev_device *device,
 	if (!db)
 		goto out;
 
+#if HAVE_UDEV
 	devnode = udev_device_get_devnode(device->udev_device);
+#else
+	if (demi_device_get_devnode(&device->demi_device, &devnode) == -1)
+		goto out;
+#endif
 	libwacom_device = libwacom_new_from_path(db, devnode, WFALLBACK_NONE, NULL);
 	if (!libwacom_device)
 		goto out;
@@ -2415,7 +2420,7 @@ tablet_init_smoothing(struct evdev_device *device,
 	bool use_smoothing = true;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 
 	/* By default, always enable smoothing except on AES devices.
 	 * AttrTabletSmoothing can override this, if necessary.

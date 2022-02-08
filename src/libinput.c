@@ -2057,9 +2057,11 @@ close_restricted(struct libinput *libinput, int fd)
 bool
 ignore_litest_test_suite_device(struct udev_device *device)
 {
+#if HAVE_UDEV
 	if (!getenv("LIBINPUT_RUNNING_TEST_SUITE") &&
 	    udev_device_get_property_value(device, "LIBINPUT_TEST_DEVICE"))
 		return true;
+#endif
 
 	return false;
 }

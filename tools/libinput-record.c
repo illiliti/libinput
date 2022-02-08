@@ -2427,20 +2427,20 @@ error:
 
 }
 static int
-open_restricted(const char *path, int flags, void *user_data)
+tools_open_restricted(const char *path, int flags, void *user_data)
 {
 	int fd = open(path, flags);
 	return fd == -1 ? -errno : fd;
 }
 
-static void close_restricted(int fd, void *user_data)
+static void tools_close_restricted(int fd, void *user_data)
 {
 	close(fd);
 }
 
 const struct libinput_interface interface = {
-	.open_restricted = open_restricted,
-	.close_restricted = close_restricted,
+	.open_restricted = tools_open_restricted,
+	.close_restricted = tools_close_restricted,
 };
 
 static bool

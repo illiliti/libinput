@@ -26,6 +26,17 @@
 #define LIBINPUT_PRIVATE_H
 
 #include "config.h"
+#if HAVE_UDEV
+#include <libudev.h>
+struct demi {};
+struct demi_device {};
+struct demi_monitor {};
+#else
+#include <demi.h>
+struct udev;
+struct udev_device;
+struct udev_monitor;
+#endif
 
 #include <errno.h>
 #include <math.h>

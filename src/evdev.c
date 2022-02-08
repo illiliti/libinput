@@ -72,6 +72,7 @@ struct evdev_udev_tag_match {
 	enum evdev_device_udev_tags tag;
 };
 
+#if HAVE_UDEV
 static const struct evdev_udev_tag_match evdev_udev_tag_matches[] = {
 	{"ID_INPUT",			EVDEV_UDEV_TAG_INPUT},
 	{"ID_INPUT_KEYBOARD",		EVDEV_UDEV_TAG_KEYBOARD},
@@ -87,6 +88,24 @@ static const struct evdev_udev_tag_match evdev_udev_tag_matches[] = {
 	{"ID_INPUT_TRACKBALL",		EVDEV_UDEV_TAG_TRACKBALL},
 	{"ID_INPUT_SWITCH",		EVDEV_UDEV_TAG_SWITCH},
 };
+#else
+static const struct {
+	enum demi_type name;
+	enum evdev_device_udev_tags tag;
+} evdev_demi_tag_matches[] = {
+	{DEMI_TYPE_KEYBOARD,		EVDEV_UDEV_TAG_KEYBOARD},
+	{DEMI_TYPE_MOUSE,		EVDEV_UDEV_TAG_MOUSE},
+	{DEMI_TYPE_TOUCHPAD,		EVDEV_UDEV_TAG_TOUCHPAD},
+	{DEMI_TYPE_TOUCHSCREEN, 	EVDEV_UDEV_TAG_TOUCHSCREEN},
+	{DEMI_TYPE_TABLET,		EVDEV_UDEV_TAG_TABLET},
+	// {"ID_INPUT_TABLET_PAD",	EVDEV_UDEV_TAG_TABLET_PAD}, // TODO demi
+	{DEMI_TYPE_JOYSTICK,		EVDEV_UDEV_TAG_JOYSTICK},
+	{DEMI_TYPE_ACCELEROMETER,	EVDEV_UDEV_TAG_ACCELEROMETER},
+	{DEMI_TYPE_POINTING_STICK,	EVDEV_UDEV_TAG_POINTINGSTICK},
+	// {"ID_INPUT_TRACKBALL",	EVDEV_UDEV_TAG_TRACKBALL}, // TODO demi
+	{DEMI_TYPE_SWITCH,		EVDEV_UDEV_TAG_SWITCH},
+};
+#endif
 
 static inline bool
 parse_udev_flag(struct evdev_device *device,
@@ -96,7 +115,11 @@ parse_udev_flag(struct evdev_device *device,
 	const char *val;
 	bool b;
 
+#if HAVE_UDEV
 	val = udev_device_get_property_value(udev_device, property);
+#else
+	val = NULL;
+#endif
 	if (!val)
 		return false;
 
@@ -508,7 +531,7 @@ evdev_tag_trackpoint(struct evdev_device *device,
 	device->tags |= EVDEV_TAG_TRACKPOINT;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (q && quirks_get_string(q, QUIRK_ATTR_TRACKPOINT_INTEGRATION, &prop)) {
 		if (streq(prop, "internal")) {
 			/* noop, this is the default anyway */
@@ -560,7 +583,7 @@ evdev_tag_keyboard(struct evdev_device *device,
 	}
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (q && quirks_get_string(q, QUIRK_ATTR_KEYBOARD_INTEGRATION, &prop)) {
 		if (streq(prop, "internal")) {
 			evdev_tag_keyboard_internal(device);
@@ -992,7 +1015,7 @@ evdev_read_switch_reliability_prop(struct evdev_device *device)
 	char *prop;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q || !quirks_get_string(q, QUIRK_ATTR_LID_SWITCH_RELIABILITY, &prop)) {
 		r = RELIABILITY_UNKNOWN;
 	} else if (!parse_switch_reliability_property(prop, &r)) {
@@ -1318,7 +1341,11 @@ evdev_read_wheel_click_prop(struct evdev_device *device,
 	int val;
 
 	*angle = DEFAULT_WHEEL_CLICK_ANGLE;
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device, prop);
+#else
+	prop = NULL;
+#endif
 	if (!prop)
 		return false;
 
@@ -1343,7 +1370,11 @@ evdev_read_wheel_click_count_prop(struct evdev_device *device,
 {
 	int val;
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device, prop);
+#else
+	prop = NULL;
+#endif
 	if (!prop)
 		return false;
 
@@ -1399,7 +1430,7 @@ evdev_get_trackpoint_multiplier(struct evdev_device *device)
 		return 1.0;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (q) {
 		quirks_get_double(q, QUIRK_ATTR_TRACKPOINT_MULTIPLIER, &multiplier);
 		quirks_unref(q);
@@ -1428,7 +1459,7 @@ evdev_need_velocity_averaging(struct evdev_device *device)
 	bool use_velocity_averaging = false; /* default off unless we have quirk */
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (q) {
 		quirks_get_bool(q,
 				QUIRK_ATTR_USE_VELOCITY_AVERAGING,
@@ -1452,8 +1483,12 @@ evdev_read_dpi_prop(struct evdev_device *device)
 	if (device->tags & EVDEV_TAG_TRACKPOINT)
 		return DEFAULT_MOUSE_DPI;
 
+#if HAVE_UDEV
 	mouse_dpi = udev_device_get_property_value(device->udev_device,
 						   "MOUSE_DPI");
+#else
+	mouse_dpi = NULL;
+#endif
 	if (mouse_dpi) {
 		dpi = parse_mouse_dpi_property(mouse_dpi);
 		if (!dpi) {
@@ -1496,7 +1531,7 @@ evdev_read_model_flags(struct evdev_device *device)
 	struct quirks *q;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 
 	while (q && m->quirk) {
 		bool is_set;
@@ -1563,7 +1598,7 @@ evdev_read_attr_res_prop(struct evdev_device *device,
 	bool rc = false;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q)
 		return false;
 
@@ -1589,7 +1624,7 @@ evdev_read_attr_size_prop(struct evdev_device *device,
 	bool rc = false;
 
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q)
 		return false;
 
@@ -1655,6 +1690,7 @@ evdev_device_get_udev_tags(struct evdev_device *device,
 			   struct udev_device *udev_device)
 {
 	enum evdev_device_udev_tags tags = 0;
+#if HAVE_UDEV
 	int i;
 
 	for (i = 0; i < 2 && udev_device; i++) {
@@ -1668,6 +1704,27 @@ evdev_device_get_udev_tags(struct evdev_device *device,
 		}
 		udev_device = udev_device_get_parent(udev_device);
 	}
+#else
+	struct demi_device *demi_device = &device->demi_device;
+	enum demi_class demi_class;
+	uint32_t demi_type;
+
+	if (demi_device_get_class(demi_device, &demi_class) == -1)
+		return 0;
+
+	if (demi_class != DEMI_CLASS_INPUT)
+		return 0;
+
+	tags |= EVDEV_UDEV_TAG_INPUT;
+
+	if (demi_device_get_type(demi_device, &demi_type) == -1)
+		return 0;
+
+	for (size_t i = 0; i < ARRAY_LENGTH(evdev_demi_tag_matches); i++) {
+		if (demi_type & evdev_demi_tag_matches[i].name)
+			tags |= evdev_demi_tag_matches[i].tag;
+	}
+#endif
 
 	return tags;
 }
@@ -2137,6 +2194,7 @@ evdev_notify_added_device(struct evdev_device *device)
 static bool
 evdev_device_have_same_syspath(struct udev_device *udev_device, int fd)
 {
+#if HAVE_UDEV
 	struct udev *udev = udev_device_get_udev(udev_device);
 	struct udev_device *udev_device_new = NULL;
 	struct stat st;
@@ -2155,6 +2213,9 @@ out:
 	if (udev_device_new)
 		udev_device_unref(udev_device_new);
 	return rc;
+#else
+	return true;
+#endif
 }
 
 static bool
@@ -2165,8 +2226,12 @@ evdev_set_device_group(struct evdev_device *device,
 	struct libinput_device_group *group = NULL;
 	const char *udev_group;
 
+#if HAVE_UDEV
 	udev_group = udev_device_get_property_value(udev_device,
 						    "LIBINPUT_DEVICE_GROUP");
+#else
+	udev_group = NULL;
+#endif
 	if (udev_group)
 		group = libinput_device_group_find_group(libinput, udev_group);
 
@@ -2213,7 +2278,7 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 	 * unnecessary wakeups but on some devices we need to watch it for
 	 * pointer jumps */
 	quirks = evdev_libinput_context(device)->quirks;
-	q = quirks_fetch_for_device(quirks, device->udev_device);
+	q = quirks_fetch_for_device(quirks, device->udev_device, device);
 	if (!q ||
 	    !quirks_get_string(q, QUIRK_ATTR_MSC_TIMESTAMP, &prop) ||
 	    !streq(prop, "watch")) {
@@ -2343,23 +2408,31 @@ udev_device_should_be_ignored(struct udev_device *udev_device)
 {
 	const char *value;
 
+#if HAVE_UDEV
 	value = udev_device_get_property_value(udev_device,
 					       "LIBINPUT_IGNORE_DEVICE");
+#else
+	value = NULL;
+#endif
 
 	return value && !streq(value, "0");
 }
 
 struct evdev_device *
 evdev_device_create(struct libinput_seat *seat,
-		    struct udev_device *udev_device)
+		    struct udev_device *udev_device,
+		    struct demi_device *demi_device)
 {
 	struct libinput *libinput = seat->libinput;
 	struct evdev_device *device = NULL;
 	int rc;
 	int fd;
 	int unhandled_device = 0;
-	const char *devnode = udev_device_get_devnode(udev_device);
-	const char *sysname = udev_device_get_sysname(udev_device);
+	const char *devnode, *sysname;
+
+#if HAVE_UDEV
+	devnode = udev_device_get_devnode(udev_device);
+	sysname = udev_device_get_sysname(udev_device);
 
 	if (!devnode) {
 		log_info(libinput, "%s: no device node associated\n", sysname);
@@ -2370,6 +2443,13 @@ evdev_device_create(struct libinput_seat *seat,
 		log_debug(libinput, "%s: device is ignored\n", sysname);
 		return NULL;
 	}
+#else
+	if (demi_device_get_devnode(demi_device, &devnode) == -1)
+		return NULL;
+
+	if (demi_device_get_devname(demi_device, &sysname) == -1)
+		return NULL;
+#endif
 
 	/* Use non-blocking mode so that we can loop on read on
 	 * evdev_device_data() until all events on the fd are
@@ -2407,7 +2487,11 @@ evdev_device_create(struct libinput_seat *seat,
 	device->seat_caps = 0;
 	device->is_mt = 0;
 	device->mtdev = NULL;
+#if HAVE_UDEV
 	device->udev_device = udev_device_ref(udev_device);
+#else
+	device->demi_device = *demi_device; // TODO demi
+#endif
 	device->dispatch = NULL;
 	device->fd = fd;
 	device->devname = libevdev_get_name(device->evdev);
@@ -2469,7 +2553,14 @@ evdev_device_get_output(struct evdev_device *device)
 const char *
 evdev_device_get_sysname(struct evdev_device *device)
 {
+#if HAVE_UDEV
 	return udev_device_get_sysname(device->udev_device);
+#else
+	const char *sysname;
+	if (demi_device_get_devname(&device->demi_device, &sysname) == -1)
+		return NULL;
+	return sysname;
+#endif
 }
 
 const char *
@@ -2493,7 +2584,11 @@ evdev_device_get_id_vendor(struct evdev_device *device)
 struct udev_device *
 evdev_device_get_udev_device(struct evdev_device *device)
 {
+#if HAVE_UDEV
 	return udev_device_ref(device->udev_device);
+#else
+	return NULL;
+#endif
 }
 
 void
@@ -2574,8 +2669,12 @@ evdev_read_calibration_prop(struct evdev_device *device)
 	const char *prop;
 	float calibration[6];
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device,
 					      "LIBINPUT_CALIBRATION_MATRIX");
+#else
+	prop = NULL;
+#endif
 
 	if (prop == NULL)
 		return;
@@ -2610,7 +2709,11 @@ evdev_read_fuzz_prop(struct evdev_device *device, unsigned int code)
 	if (rc == -1)
 		return 0;
 
+#if HAVE_UDEV
 	prop = udev_device_get_property_value(device->udev_device, name);
+#else
+	prop = NULL;
+#endif
 	if (prop && (safe_atoi(prop, &fuzz) == false || fuzz < 0)) {
 		evdev_log_bug_libinput(device,
 				       "invalid LIBINPUT_FUZZ property value: %s\n",
@@ -2969,9 +3072,14 @@ evdev_device_resume(struct evdev_device *device)
 	if (device->was_removed)
 		return -ENODEV;
 
+#if HAVE_UDEV
 	devnode = udev_device_get_devnode(device->udev_device);
 	if (!devnode)
 		return -ENODEV;
+#else
+	if (demi_device_get_devnode(&device->demi_device, &devnode) == -1)
+		return -ENODEV;
+#endif
 
 	fd = open_restricted(libinput, devnode,
 			     O_RDWR | O_NONBLOCK | O_CLOEXEC);
@@ -3072,7 +3180,11 @@ evdev_device_destroy(struct evdev_device *device)
 	libinput_timer_destroy(&device->middlebutton.timer);
 	libinput_seat_unref(device->base.seat);
 	libevdev_free(device->evdev);
+#if HAVE_UDEV
 	udev_device_unref(device->udev_device);
+#else
+	// demi_device_finish(&device->demi_device); // TODO
+#endif
 	free(device);
 }
 
@@ -3092,7 +3204,12 @@ evdev_tablet_has_left_handed(struct evdev_device *device)
 		goto out;
 
 	error = libwacom_error_new();
+#if HAVE_UDEV
 	devnode = udev_device_get_devnode(device->udev_device);
+#else
+	if (demi_device_get_devnode(&device->demi_device, &devnode) == -1)
+		goto out;
+#endif
 
 	d = libwacom_new_from_path(db,
 				   devnode,
