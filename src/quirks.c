@@ -1367,6 +1367,7 @@ match_fill_udev_type(struct match *m,
 		// { "ID_TABLET_PAD", UDEV_TABLET_PAD }, // TODO demi
 		{ DEMI_TYPE_JOYSTICK, UDEV_JOYSTICK },
 		{ DEMI_TYPE_KEYBOARD, UDEV_KEYBOARD },
+		{ DEMI_TYPE_KEY, UDEV_KEYBOARD },
 	};
 	struct ut_map *map;
 	uint32_t type;
