@@ -146,7 +146,7 @@ path_seat_get_for_device(struct path_input *input,
 #else
 		seat_prop = NULL;
 #endif
-		seat_logical_name = strdup(seat_prop ? seat_prop : default_seat_name);
+		seat_logical_name = safe_strdup(seat_prop ? seat_prop : default_seat_name);
 	}
 
 	if (!seat_logical_name) {

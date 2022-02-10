@@ -1870,18 +1870,23 @@ tp_post_events(struct tp_dispatch *tp, uint64_t time)
 	ignore_motion |= tp_tap_handle_state(tp, time);
 	ignore_motion |= tp_post_button_events(tp, time);
 
-	if (ignore_motion ||
-	    tp->palm.trackpoint_active ||
-	    tp->dwt.keyboard_active) {
+	if (tp->palm.trackpoint_active || tp->dwt.keyboard_active) {
 		tp_edge_scroll_stop_events(tp, time);
 		tp_gesture_cancel(tp, time);
+		return;
+	}
+
+	if (ignore_motion) {
+		tp_edge_scroll_stop_events(tp, time);
+		tp_gesture_cancel_motion_gestures(tp, time);
+		tp_gesture_post_events(tp, time, true);
 		return;
 	}
 
 	if (tp_edge_scroll_post_events(tp, time) != 0)
 		return;
 
-	tp_gesture_post_events(tp, time);
+	tp_gesture_post_events(tp, time, false);
 }
 
 static void
@@ -2018,6 +2023,7 @@ tp_interface_destroy(struct evdev_dispatch *dispatch)
 	libinput_timer_destroy(&tp->dwt.keyboard_timer);
 	libinput_timer_destroy(&tp->tap.timer);
 	libinput_timer_destroy(&tp->gesture.finger_count_switch_timer);
+	libinput_timer_destroy(&tp->gesture.hold_timer);
 	free(tp->touches);
 	free(tp);
 }

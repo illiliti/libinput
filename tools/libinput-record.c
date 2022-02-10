@@ -210,7 +210,10 @@ iprintf(FILE *fp,
 
 	snprintf(fmt, sizeof(fmt), "%s%s", &space[len - indent - 1], format);
 	va_start(args, format);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 	rc = vfprintf(fp, fmt, args);
+#pragma GCC diagnostic pop
 	va_end(args);
 
 	assert(rc != -1 && (unsigned int)rc > indent);
@@ -1986,7 +1989,7 @@ init_output_file(const char *file, bool is_prefix)
 		snprintf(name, sizeof(name), "%s", file);
 	}
 
-	return strdup(name);
+	return safe_strdup(name);
 }
 
 static bool
@@ -2509,7 +2512,7 @@ init_hidraw(struct record_context *ctx)
 
 			hidraw = zalloc(sizeof(*hidraw));
 			hidraw->fd = fd;
-			hidraw->name = strdup(entry->d_name);
+			hidraw->name = safe_strdup(entry->d_name);
 			hidraw->device = dev;
 			list_insert(&dev->hidraw_devices, &hidraw->link);
 		}

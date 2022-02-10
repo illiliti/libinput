@@ -316,3 +316,8 @@ LIBINPUT_1.15 {
 	libinput_netlink_create_context;
 	libinput_netlink_assign_seat;
 } LIBINPUT_1.14;
+
+LIBINPUT_1.19 {
+	libinput_event_pointer_get_scroll_value_v120;
+	libinput_event_pointer_get_scroll_value;
+} LIBINPUT_1.15;
