@@ -30,6 +30,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include "evdev.h"
 
@@ -162,45 +164,52 @@ device_removed(struct demi_device *demi_device, struct demi_input *input)
 	}
 }
 
-static int add_device(struct demi_device *device, void *data)
-{
-	struct demi_input *input = data;
-	enum demi_class class;
-	const char *devname;
-
-	if (demi_device_get_class(device, &class) == -1)
-		goto out;
-
-	if (class != DEMI_CLASS_INPUT)
-		goto out;
-
-	if (demi_device_get_devname(device, &devname) == -1)
-		goto out;
-
-	if (!strneq("input/event", devname, 11))
-		goto out;
-
-	if (device_added(device, input, NULL) < 0) {
-		demi_device_finish(device);
-		return -1;
-	}
-
-out:
-	// demi_device_finish(device); // TODO
-	return 0;
-}
-
 static int
 demi_input_add_devices(struct demi_input *input, struct demi *demi)
 {
-	struct demi_enumerate e;
+	struct demi_device dd;
+	struct dirent *de;
+	struct stat st;
+	mode_t type;
+	int dfd;
+	DIR *dp;
 
-	if (demi_enumerate_init(&e, demi) == -1)
-		return -1;
-	if (demi_enumerate_scan_system(&e, add_device, input) == -1)
-		return -1;
+	dp = opendir("/dev/input");
 
-	demi_enumerate_finish(&e);
+	if (!dp) {
+		return -1;
+	}
+
+	dfd = dirfd(dp);
+
+	while ((de = readdir(dp))) {
+		if (!strneq(de->d_name, "event", 5)) {
+			continue;
+		}
+
+		if (fstatat(dfd, de->d_name, &st, 0) == -1) {
+			continue;
+		}
+
+		type = st.st_mode & (S_IFCHR | S_IFBLK);
+
+		if (!type) {
+			continue;
+		}
+
+		if (demi_device_init_devnum(&dd, demi, st.st_rdev, type) == -1) {
+			continue;
+		}
+
+		if (device_added(&dd, input, NULL) < 0) {
+			demi_device_finish(&dd);
+			return -1;
+		}
+
+		// demi_device_finish(device); // TODO
+	}
+
+	closedir(dp);
 	return 0;
 }
 
