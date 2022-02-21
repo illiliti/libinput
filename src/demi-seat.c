@@ -246,6 +246,7 @@ evdev_demi_handler(void *data)
 		device_removed(&demi_device, input);
 
 out:
+	(void)demi_device;
 	// demi_device_finish(&demi_device); // TODO
 }
 
