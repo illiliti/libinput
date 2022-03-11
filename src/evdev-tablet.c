@@ -1089,7 +1089,11 @@ tool_set_pressure_thresholds(struct tablet_dispatch *tablet,
 		goto out;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 
 	tool->pressure.offset = pressure->minimum;
 
@@ -2400,7 +2404,11 @@ tablet_init_smoothing(struct evdev_device *device,
 	bool use_smoothing = true;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 
 	/* By default, always enable smoothing except on AES devices.
 	 * AttrTabletSmoothing can override this, if necessary.
