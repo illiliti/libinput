@@ -339,7 +339,7 @@ src_libquirks = [
 	'src/builddir.h',
 ]
 
-deps_libquirks = [dep_udev, dep_libwacom, dep_libinput_util]
+deps_libquirks = [dep_udev, dep_libwacom, dep_libinput_util, dep_libevdev]
 libquirks = static_library('quirks', src_libquirks,
 			   dependencies : deps_libquirks,
 			   include_directories : includes_include)

@@ -27,6 +27,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <libevdev/libevdev.h>
 
 #include "libinput.h"
 
@@ -192,6 +193,10 @@ quirks_context_ref(struct quirks_context *ctx);
 struct quirks *
 quirks_fetch_for_device(struct quirks_context *ctx,
 			struct udev_device *device);
+
+struct quirks *
+quirks_fetch_for_evdev(struct quirks_context *ctx,
+		       struct libevdev *evdev);
 
 /**
  * Reduce the refcount by one. When the refcount reaches zero, the

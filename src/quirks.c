@@ -34,6 +34,7 @@
 #include <dirent.h>
 #include <fnmatch.h>
 #include <libgen.h>
+#include <libevdev/libevdev.h>
 #ifdef __FreeBSD__
 #include <kenv.h>
 #endif
@@ -46,6 +47,7 @@
 #include "libinput-util.h"
 
 #include "quirks.h"
+#include "evdev-type.h"
 
 /* Custom logging so we can have detailed output for the tool but minimal
  * logging for libinput itself. */
@@ -1187,7 +1189,6 @@ quirks_context_unref(struct quirks_context *ctx)
 	return NULL;
 }
 
-#if HAVE_UDEV
 static struct quirks *
 quirks_new(void)
 {
@@ -1200,7 +1201,6 @@ quirks_new(void)
 
 	return q;
 }
-#endif
 
 struct quirks *
 quirks_unref(struct quirks *q)
@@ -1247,8 +1247,10 @@ udev_prop(struct udev_device *device, const char *prop)
 
 static inline void
 match_fill_name(struct match *m,
-		struct udev_device *device)
+		struct udev_device *device,
+		struct libevdev *evdev)
 {
+#if HAVE_UDEV
 	const char *str = udev_prop(device, "NAME");
 	size_t slen;
 
@@ -1264,17 +1266,22 @@ match_fill_name(struct match *m,
 	if (slen > 1 &&
 	    m->name[slen - 1] == '"')
 		m->name[slen - 1] = '\0';
+#else
+	m->name = safe_strdup(libevdev_get_name(evdev));
+#endif
 
 	m->bits |= M_NAME;
 }
 
 static inline void
 match_fill_bus_vid_pid(struct match *m,
-		       struct udev_device *device)
+		       struct udev_device *device,
+		       struct libevdev *evdev)
 {
 	const char *str;
 	unsigned int product, vendor, bus, version;
 
+#if HAVE_UDEV
 	str = udev_prop(device, "PRODUCT");
 	if (!str)
 		return;
@@ -1284,6 +1291,12 @@ match_fill_bus_vid_pid(struct match *m,
 	if (sscanf(str, "%x/%x/%x/%x", &bus, &vendor, &product, &version) != 4)
 		return;
 
+#else
+	bus = libevdev_get_id_bustype(evdev);
+	product = libevdev_get_id_product(evdev);
+	vendor = libevdev_get_id_vendor(evdev);
+	version = libevdev_get_id_version(evdev);
+#endif
 	m->product = product;
 	m->vendor = vendor;
 	m->version = version;
@@ -1320,8 +1333,10 @@ match_fill_bus_vid_pid(struct match *m,
 
 static inline void
 match_fill_udev_type(struct match *m,
-		     struct udev_device *device)
+		     struct udev_device *device,
+		     struct libevdev *evdev)
 {
+#if HAVE_UDEV
 	struct ut_map {
 		const char *prop;
 		enum udev_type flag;
@@ -1341,6 +1356,28 @@ match_fill_udev_type(struct match *m,
 		if (udev_prop(device, map->prop))
 			m->udev_type |= map->flag;
 	}
+#else
+	struct ut_map {
+		uint32_t prop;
+		enum udev_type flag;
+	} mappings[] = {
+		{ EVDEV_TYPE_MOUSE, UDEV_MOUSE },
+		{ EVDEV_TYPE_POINTING_STICK, UDEV_POINTINGSTICK },
+		{ EVDEV_TYPE_TOUCHPAD, UDEV_TOUCHPAD },
+		{ EVDEV_TYPE_TABLET, UDEV_TABLET },
+		// { EVDEV_TYPE_TABLET_PAD, UDEV_TABLET_PAD },
+		{ EVDEV_TYPE_JOYSTICK, UDEV_JOYSTICK },
+		{ EVDEV_TYPE_KEYBOARD, UDEV_KEYBOARD },
+		{ EVDEV_TYPE_KEY, UDEV_KEYBOARD },
+	};
+	struct ut_map *map;
+
+	uint32_t type = get_input_type(evdev);
+	ARRAY_FOR_EACH(mappings, map) {
+		if (type & map->prop)
+			m->udev_type |= map->flag;
+	}
+#endif
 	m->bits |= M_UDEV_TYPE;
 }
 
@@ -1358,17 +1395,16 @@ match_fill_dmi_dt(struct match *m, char *dmi, char *dt)
 	}
 }
 
-#if HAVE_UDEV
 static struct match *
-match_new(struct udev_device *device,
+match_new(struct udev_device *device, struct libevdev *evdev,
 	  char *dmi, char *dt)
 {
 	struct match *m = zalloc(sizeof *m);
 
-	match_fill_name(m, device);
-	match_fill_bus_vid_pid(m, device);
+	match_fill_name(m, device, evdev);
+	match_fill_bus_vid_pid(m, device, evdev);
 	match_fill_dmi_dt(m, dmi, dt);
-	match_fill_udev_type(m, device);
+	match_fill_udev_type(m, device, evdev);
 	return m;
 }
 
@@ -1484,7 +1520,6 @@ quirk_match_section(struct quirks_context *ctx,
 
 	return true;
 }
-#endif
 
 struct quirks *
 quirks_fetch_for_device(struct quirks_context *ctx,
@@ -1503,7 +1538,7 @@ quirks_fetch_for_device(struct quirks_context *ctx,
 
 	q = quirks_new();
 
-	m = match_new(udev_device, ctx->dmi, ctx->dt);
+	m = match_new(udev_device, NULL, ctx->dmi, ctx->dt);
 
 	list_for_each(s, &ctx->sections, link) {
 		quirk_match_section(ctx, q, s, m, udev_device);
@@ -1524,6 +1559,36 @@ quirks_fetch_for_device(struct quirks_context *ctx,
 #endif
 }
 
+struct quirks *
+quirks_fetch_for_evdev(struct quirks_context *ctx,
+		       struct libevdev *evdev)
+{
+	struct quirks *q = NULL;
+	struct section *s;
+	struct match *m;
+
+	if (!ctx)
+		return NULL;
+
+	q = quirks_new();
+
+	m = match_new(NULL, evdev, ctx->dmi, ctx->dt);
+
+	list_for_each(s, &ctx->sections, link) {
+		quirk_match_section(ctx, q, s, m, NULL);
+	}
+
+	match_free(m);
+
+	if (q->nproperties == 0) {
+		quirks_unref(q);
+		return NULL;
+	}
+
+	list_insert(&ctx->quirks, &q->link);
+
+	return q;
+}
 
 static inline struct property *
 quirk_find_prop(struct quirks *q, enum quirk which)
