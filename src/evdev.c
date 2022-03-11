@@ -48,6 +48,7 @@
 #include "libinput-private.h"
 #include "quirks.h"
 #include "util-input-event.h"
+#include "evdev-type.h"
 
 #if HAVE_LIBWACOM
 #include <libwacom/libwacom.h>
@@ -97,6 +98,24 @@ static const struct evdev_udev_tag_match evdev_udev_tag_matches[] = {
 	{"ID_INPUT_POINTINGSTICK",	EVDEV_UDEV_TAG_POINTINGSTICK},
 	{"ID_INPUT_TRACKBALL",		EVDEV_UDEV_TAG_TRACKBALL},
 	{"ID_INPUT_SWITCH",		EVDEV_UDEV_TAG_SWITCH},
+};
+#else
+static const struct {
+	uint32_t name;
+	enum evdev_device_udev_tags tag;
+} evdev_udev_tag_matches[] = {
+	{EVDEV_TYPE_KEYBOARD,		EVDEV_UDEV_TAG_KEYBOARD},
+	{EVDEV_TYPE_KEY,		EVDEV_UDEV_TAG_KEYBOARD},
+	{EVDEV_TYPE_MOUSE,		EVDEV_UDEV_TAG_MOUSE},
+	{EVDEV_TYPE_TOUCHPAD,		EVDEV_UDEV_TAG_TOUCHPAD},
+	{EVDEV_TYPE_TOUCHSCREEN,	EVDEV_UDEV_TAG_TOUCHSCREEN},
+	{EVDEV_TYPE_TABLET,		EVDEV_UDEV_TAG_TABLET},
+	// {EVDEV_TYPE_TABLET_PAD,		EVDEV_UDEV_TAG_TABLET_PAD},
+	{EVDEV_TYPE_JOYSTICK,		EVDEV_UDEV_TAG_JOYSTICK},
+	{EVDEV_TYPE_ACCELEROMETER,	EVDEV_UDEV_TAG_ACCELEROMETER},
+	{EVDEV_TYPE_POINTING_STICK,	EVDEV_UDEV_TAG_POINTINGSTICK},
+	// {EVDEV_TYPE_TRACKBALL,		EVDEV_UDEV_TAG_TRACKBALL},
+	{EVDEV_TYPE_SWITCH,		EVDEV_UDEV_TAG_SWITCH},
 };
 #endif
 
@@ -1688,26 +1707,11 @@ evdev_device_get_udev_tags(struct evdev_device *device,
 		return 0;
 	if (major(st.st_rdev) == INPUT_MAJOR)
 		tags |= EVDEV_UDEV_TAG_INPUT;
-	if (libevdev_has_event_code(evdev, EV_KEY, KEY_ENTER) ||
-	    libevdev_has_event_code(evdev, EV_KEY, KEY_VOLUMEUP) ||
-	    libevdev_has_event_code(evdev, EV_KEY, KEY_POWER))
-		tags |= EVDEV_UDEV_TAG_KEYBOARD;
-	if (libevdev_has_event_code(evdev, EV_REL, REL_X) &&
-	    libevdev_has_event_code(evdev, EV_REL, REL_Y) &&
-	    libevdev_has_event_code(evdev, EV_KEY, BTN_MOUSE))
-		tags |= EVDEV_UDEV_TAG_MOUSE;
-	if (libevdev_has_event_code(evdev, EV_ABS, ABS_X) &&
-	    libevdev_has_event_code(evdev, EV_ABS, ABS_Y)) {
-		if (libevdev_has_event_code(evdev, EV_KEY, BTN_TOOL_FINGER) &&
-		    !libevdev_has_event_code(evdev, EV_KEY, BTN_TOOL_PEN) &&
-		    !libevdev_has_property(evdev, INPUT_PROP_DIRECT)) {
-			tags |= EVDEV_UDEV_TAG_TOUCHPAD;
-		} else if (libevdev_has_event_code(evdev, EV_KEY, BTN_MOUSE)) {
-			tags |= EVDEV_UDEV_TAG_MOUSE;
-		} else if (libevdev_has_event_code(evdev, EV_KEY, BTN_TOUCH) ||
-		           libevdev_has_property(evdev, INPUT_PROP_DIRECT)) {
-			tags |= EVDEV_UDEV_TAG_TOUCHSCREEN;
-		}
+
+	uint32_t evdev_type = get_input_type(evdev);
+	for (size_t i = 0; i < ARRAY_LENGTH(evdev_udev_tag_matches); i++) {
+		if (evdev_type & evdev_udev_tag_matches[i].name)
+			tags |= evdev_udev_tag_matches[i].tag;
 	}
 #endif
 
