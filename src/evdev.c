@@ -529,7 +529,11 @@ evdev_tag_trackpoint(struct evdev_device *device,
 	device->tags |= EVDEV_TAG_TRACKPOINT;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (q && quirks_get_string(q, QUIRK_ATTR_TRACKPOINT_INTEGRATION, &prop)) {
 		if (streq(prop, "internal")) {
 			/* noop, this is the default anyway */
@@ -581,7 +585,11 @@ evdev_tag_keyboard(struct evdev_device *device,
 	}
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (q && quirks_get_string(q, QUIRK_ATTR_KEYBOARD_INTEGRATION, &prop)) {
 		if (streq(prop, "internal")) {
 			evdev_tag_keyboard_internal(device);
@@ -1013,7 +1021,11 @@ evdev_read_switch_reliability_prop(struct evdev_device *device)
 	char *prop;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q || !quirks_get_string(q, QUIRK_ATTR_LID_SWITCH_RELIABILITY, &prop)) {
 		r = RELIABILITY_UNKNOWN;
 	} else if (!parse_switch_reliability_property(prop, &r)) {
@@ -1427,7 +1439,11 @@ evdev_get_trackpoint_multiplier(struct evdev_device *device)
 		return 1.0;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (q) {
 		quirks_get_double(q, QUIRK_ATTR_TRACKPOINT_MULTIPLIER, &multiplier);
 		quirks_unref(q);
@@ -1456,7 +1472,11 @@ evdev_need_velocity_averaging(struct evdev_device *device)
 	bool use_velocity_averaging = false; /* default off unless we have quirk */
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (q) {
 		quirks_get_bool(q,
 				QUIRK_ATTR_USE_VELOCITY_AVERAGING,
@@ -1528,7 +1548,11 @@ evdev_read_model_flags(struct evdev_device *device)
 	struct quirks *q;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 
 	while (q && m->quirk) {
 		bool is_set;
@@ -1595,7 +1619,11 @@ evdev_read_attr_res_prop(struct evdev_device *device,
 	bool rc = false;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q)
 		return false;
 
@@ -1621,7 +1649,11 @@ evdev_read_attr_size_prop(struct evdev_device *device,
 	bool rc = false;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q)
 		return false;
 
@@ -2203,7 +2235,11 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 	 * unnecessary wakeups but on some devices we need to watch it for
 	 * pointer jumps */
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q ||
 	    !quirks_get_string(q, QUIRK_ATTR_MSC_TIMESTAMP, &prop) ||
 	    !streq(prop, "watch")) {
