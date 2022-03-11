@@ -3219,7 +3219,11 @@ tp_is_tpkb_combo_below(struct evdev_device *device)
 	int rc = false;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q)
 		return false;
 
@@ -3301,7 +3305,11 @@ tp_read_palm_pressure_prop(struct tp_dispatch *tp,
 	struct quirks *q;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q)
 		return threshold;
 
@@ -3337,7 +3345,11 @@ tp_init_palmdetect_size(struct tp_dispatch *tp,
 	uint32_t threshold;
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (!q)
 		return;
 
@@ -3531,7 +3543,11 @@ tp_init_pressure(struct tp_dispatch *tp,
 	assert(abs);
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (q && quirks_get_range(q, QUIRK_ATTR_PRESSURE_RANGE, &r)) {
 		hi = r.upper;
 		lo = r.lower;
@@ -3587,7 +3603,11 @@ tp_init_touch_size(struct tp_dispatch *tp,
 	}
 
 	quirks = evdev_libinput_context(device)->quirks;
+#if HAVE_UDEV
 	q = quirks_fetch_for_device(quirks, device->udev_device);
+#else
+	q = quirks_fetch_for_evdev(quirks, device->evdev);
+#endif
 	if (q && quirks_get_range(q, QUIRK_ATTR_TOUCH_SIZE_RANGE, &r)) {
 		hi = r.upper;
 		lo = r.lower;
