@@ -165,6 +165,7 @@ endif
 ############ udev bits ############
 
 have_udev = get_option('udev')
+have_udev = have_udev and get_option('enum-backend') == 'udev'
 config_h.set10('HAVE_UDEV', have_udev)
 if have_udev
 dep_udev = dependency('libudev')
