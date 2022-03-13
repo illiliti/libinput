@@ -376,8 +376,6 @@ src_libinput = src_libfilter + [
 	'src/evdev-tablet-pad.c',
 	'src/evdev-tablet-pad.h',
 	'src/evdev-tablet-pad-leds.c',
-	'src/netlink-seat.c',
-	'src/netlink-seat.h',
 	'src/path-seat.c',
 	'src/udev-seat.c',
 	'src/udev-seat.h',
@@ -397,6 +395,10 @@ deps_libinput = [
 	dep_libinput_util,
 	dep_libquirks
 ]
+
+if not have_udev
+	src_libinput += ['src/netlink-seat.c', 'src/netlink-seat.h']
+endif
 
 libinput_version_h_config = configuration_data()
 libinput_version_h_config.set('LIBINPUT_VERSION_MAJOR', libinput_version[0])
