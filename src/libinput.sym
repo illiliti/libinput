@@ -320,4 +320,6 @@ LIBINPUT_1.15 {
 LIBINPUT_1.19 {
 	libinput_event_pointer_get_scroll_value_v120;
 	libinput_event_pointer_get_scroll_value;
+	libinput_create_context;
+	libinput_assign_seat;
 } LIBINPUT_1.15;

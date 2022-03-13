@@ -3678,6 +3678,14 @@ int
 libinput_netlink_assign_seat(struct libinput *libinput,
 			     const char *seat_id);
 
+
+struct libinput *
+libinput_create_context(const struct libinput_interface *interface,
+				void *user_data);
+int
+libinput_assign_seat(struct libinput *libinput,
+			     const char *seat_id);
+
 /**
  * @ingroup base
  *

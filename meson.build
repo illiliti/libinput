@@ -396,7 +396,10 @@ deps_libinput = [
 	dep_libquirks
 ]
 
-if not have_udev
+if get_option('enum-backend') == 'demi'
+	deps_libinput += dependency('demi')
+	src_libinput += ['src/demi-seat.c', 'src/demi-seat.h']
+elif not have_udev
 	src_libinput += ['src/netlink-seat.c', 'src/netlink-seat.h']
 endif
 
