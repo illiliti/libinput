@@ -10,6 +10,11 @@ option('libwacom',
        type: 'boolean',
        value: true,
        description: 'Use libwacom for tablet identification (default=true)')
+option('enum-backend',
+       type: 'combo',
+       choices: ['netlink', 'udev'],
+       value: 'udev',
+       description: 'Input device detection backend (default=udev)')
 option('udev',
        type: 'boolean',
        value: true,
