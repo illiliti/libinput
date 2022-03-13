@@ -18,6 +18,7 @@ option('enum-backend',
 option('udev',
        type: 'boolean',
        value: true,
+       deprecated: true,
        description: 'Use libudev for device detection (default=true)')
 option('debug-gui',
        type: 'boolean',
